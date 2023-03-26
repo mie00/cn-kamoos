@@ -26,7 +26,8 @@ function updateResult() {
     var result = document.getElementById("result");
     var reached = document.getElementById("reached");
     if (window.dict === undefined) {
-        result.innerHTML = "جار التحميل..."
+        result.innerHTML = `<p class="ar">جار التحميل...</p>`
+        return;
     }
     var matching = [];
     var limitReached = false;
