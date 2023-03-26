@@ -5,7 +5,11 @@
         window.dict = text.split('\n');
         updateResult();
     } else {
-        fetch("/kamoos.csv").then(resp => {
+        fetch("https://raw.githubusercontent.com/mie00/cn-kamoos/main/kamoos.csv").then(resp => {
+            if (resp.status != 200) {
+                alert("خطأ أثناء تحنيل القاموس");
+                throw "Error getting the dictionary";
+            }
             return resp.text()
         }).then(text => {
             window.localStorage.setItem("kamoos", text);
