@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini API Frontend Enhanced</title>
+    <title>Gemini API Frontend Enhanced (SSE)</title>
     <style>
         body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
         .container { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
@@ -36,12 +36,10 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     <!-- docx library for creating DOCX files -->
     <script src="https://unpkg.com/docx@8.2.2/build/index.js"></script>
-    <!-- Or from jsdelivr: <script src="https://cdn.jsdelivr.net/npm/docx@8.2.2/build/index.min.js"></script> -->
-
 </head>
 <body>
     <div class="container">
-        <h1>Gemini API Frontend Enhanced</h1>
+        <h1>Gemini API Frontend Enhanced (SSE)</h1>
 
         <label for="apiKey">Gemini API Key:</label>
         <input type="password" id="apiKey" placeholder="Enter your API Key">
@@ -76,9 +74,8 @@
         const userFileInfo = document.getElementById('userFileInfo');
         const spinner = document.getElementById('spinner');
 
-        let userPromptText = ""; // Will hold text extracted from DOCX
+        let userPromptText = "";
 
-        // --- Local Storage Persistence ---
         function loadApiKey() {
             const savedKey = localStorage.getItem('geminiApiKey');
             if (savedKey) apiKeyInput.value = savedKey;
@@ -99,15 +96,12 @@
         document.addEventListener('DOMContentLoaded', () => {
             loadApiKey();
             loadSystemPrompt();
-            // Make sure docx is available (it's loaded globally by the script tag)
             if (typeof docx === 'undefined') {
                 console.error("DOCX library not loaded!");
                 alert("Error: DOCX saving library not loaded. Please check console.");
             }
         });
 
-
-        // --- File Handling (DOCX for user prompt) ---
         userFileInput.addEventListener('change', async (event) => {
             const file = event.target.files[0];
             userFileInfo.classList.remove('error');
@@ -116,7 +110,7 @@
                 try {
                     const arrayBuffer = await file.arrayBuffer();
                     const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
-                    userPromptText = result.value; // The raw text
+                    userPromptText = result.value;
                     userFileInfo.textContent = `Loaded: ${file.name} (${file.size} bytes). Preview: ${userPromptText.substring(0,100)}...`;
                 } catch (error) {
                     console.error("Error processing DOCX file:", error);
@@ -133,7 +127,7 @@
         generateButton.addEventListener('click', async () => {
             const apiKey = apiKeyInput.value.trim();
             const systemPrompt = systemPromptTextarea.value.trim();
-            const modelName = modelNameInput.value.trim() || "gemini-2.5-pro-preview-05-06"; // Default model
+            const modelName = modelNameInput.value.trim() || "gemini-2.5-pro-preview-05-06";
 
             if (!apiKey) { alert("Please enter your API Key."); return; }
             if (!systemPrompt) { alert("Please enter a system prompt."); return; }
@@ -144,18 +138,17 @@
             saveButton.disabled = true;
             generateButton.disabled = true;
             spinner.style.display = 'inline-block';
-            saveApiKey(); // Save on use
-            saveSystemPrompt(); // Save on use
+            saveApiKey();
+            saveSystemPrompt();
 
-            const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?key=${apiKey}&alt=sse`; // alt=sse is often more robust for streaming
+            // Using alt=sse as requested. This implies SSE formatted response.
+            const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?key=${apiKey}&alt=sse`;
 
             const requestBody = {
                 "contents": [{ "role": "user", "parts": [{ "text": userPromptText }] }],
                 "systemInstruction": { "parts": [{ "text": systemPrompt }] },
-                "generationConfig": { "responseMimeType": "text/plain" }
+                "generationConfig": { "responseMimeType": "text/plain" } // This might be overridden or complemented by SSE format.
             };
-
-            let accumulatedJsonText = ""; // For point 5: accumulate text for JSON parsing
 
             try {
                 const response = await fetch(API_URL, {
@@ -166,7 +159,7 @@
 
                 if (!response.ok) {
                     let errorData;
-                    try { errorData = await response.json(); }
+                    try { errorData = await response.json(); } // Error might not be SSE
                     catch (e) { throw new Error(`HTTP error ${response.status} - ${response.statusText}`); }
                     const errorMessage = errorData?.error?.message || `API Error: ${response.status}`;
                     throw new Error(errorMessage);
@@ -174,60 +167,30 @@
 
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
-
-                // Buffer for potentially incomplete JSON objects spanning multiple stream chunks
-                let currentJsonBuffer = "";
+                let buffer = ""; // Holds incomplete lines from stream
 
                 while (true) {
                     const { value, done } = await reader.read();
                     if (done) {
-                        // Process any remaining data in currentJsonBuffer if it forms valid JSON
-                        if (currentJsonBuffer.trim()) {
-                            try {
-                                const chunkData = JSON.parse(currentJsonBuffer.trim());
-                                if (chunkData.candidates?.[0]?.content?.parts?.[0]?.text) {
-                                    outputContainer.textContent += chunkData.candidates[0].content.parts[0].text;
-                                }
-                            } catch (e) {
-                                console.warn("Error parsing final buffered JSON chunk:", currentJsonBuffer, e);
-                                // Append as raw if parse fails at the very end, or log as error
-                                // outputContainer.textContent += `\n[RAW_END_CHUNK_PARSE_ERROR: ${currentJsonBuffer}]\n`;
-                            }
+                        // Process any remaining data in the buffer if it forms a valid SSE line
+                        if (buffer.trim()) {
+                            processSseLine(buffer.trim());
                         }
                         break;
                     }
 
-                    currentJsonBuffer += decoder.decode(value, { stream: true });
-                    // console.log("Current Buffer:", JSON.stringify(currentJsonBuffer)); // For debugging stream content
+                    buffer += decoder.decode(value, { stream: true });
+                    // console.log("Raw Buffer Add:", JSON.stringify(decoder.decode(value, { stream: true })));
+                    // console.log("Current Buffer:", JSON.stringify(buffer));
+
 
                     let newlineIndex;
-                    // Keep processing as long as there are newlines, indicating potential JSON object boundaries
-                    while ((newlineIndex = currentJsonBuffer.indexOf('\n')) >= 0) {
-                        const potentialJsonLine = currentJsonBuffer.substring(0, newlineIndex).trim();
-                        // Move buffer forward past this line and its newline
-                        currentJsonBuffer = currentJsonBuffer.substring(newlineIndex + 1);
+                    // Process all complete lines in the buffer
+                    while ((newlineIndex = buffer.indexOf('\n')) >= 0) {
+                        const line = buffer.substring(0, newlineIndex).trim();
+                        buffer = buffer.substring(newlineIndex + 1); // Remaining part of the buffer
 
-                        if (potentialJsonLine) {
-                            try {
-                                const chunkData = JSON.parse(potentialJsonLine);
-                                if (chunkData.candidates?.[0]?.content?.parts?.[0]?.text) {
-                                    outputContainer.textContent += chunkData.candidates[0].content.parts[0].text;
-                                } else if (chunkData.error) {
-                                     outputContainer.textContent += `\nERROR from stream: ${chunkData.error.message}\n`;
-                                     console.error("Stream error chunk:", chunkData.error);
-                                }
-                                // Successfully parsed and processed, so this segment was a complete JSON object.
-                            } catch (e) {
-                                // console.warn("Parsing failed for line:", JSON.stringify(potentialJsonLine), "Error:", e);
-                                // Parsing failed. This means 'potentialJsonLine' (terminated by a newline)
-                                // was likely not a complete JSON object (e.g., newline was internal to pretty-printed JSON).
-                                // Prepend it back to currentJsonBuffer (with the newline it was split by)
-                                // and break this inner loop to wait for more data from the stream.
-                                currentJsonBuffer = potentialJsonLine + '\n' + currentJsonBuffer;
-                                // console.log("Re-buffered:", JSON.stringify(currentJsonBuffer));
-                                break; // Break from the while-loop that processes newlines, to fetch more stream data
-                            }
-                        }
+                        processSseLine(line);
                     }
                 }
                 saveButton.disabled = false;
@@ -242,34 +205,65 @@
             }
         });
 
-        // --- Save Output as DOCX ---
+        function processSseLine(line) {
+            // console.log("Processing line:", JSON.stringify(line));
+            if (line.startsWith("data:")) {
+                const jsonString = line.substring(5).trim(); // Remove "data:" prefix and trim
+                if (jsonString && jsonString.toLowerCase() !== "[done]") { // Check for a common "done" marker
+                    try {
+                        const chunkData = JSON.parse(jsonString);
+                        if (chunkData.candidates?.[0]?.content?.parts?.[0]?.text) {
+                            outputContainer.textContent += chunkData.candidates[0].content.parts[0].text;
+                        } else if (chunkData.promptFeedback) {
+                            // Handle prompt feedback if necessary, e.g. safety ratings
+                            // console.log("Prompt Feedback:", chunkData.promptFeedback);
+                        } else if (chunkData.error) {
+                            const errorMsg = chunkData.error.message || "Unknown error in stream chunk";
+                            outputContainer.textContent += `\nERROR from stream: ${errorMsg}\n`;
+                            console.error("Stream error chunk:", chunkData.error);
+                        }
+                        // If there are other fields in chunkData you need to handle, add them here.
+                    } catch (e) {
+                        console.error("Failed to parse JSON from data line:", jsonString, e);
+                        // It's possible a single JSON object is split over multiple 'data:' lines
+                        // (though less common for Gemini's simple text stream).
+                        // For this implementation, we assume each 'data:' line is a complete JSON.
+                        // A more complex parser would buffer 'data:' content until an event boundary (empty line).
+                        outputContainer.textContent += `\n[Error parsing stream data: ${jsonString.substring(0,50)}...]\n`;
+                    }
+                } else if (jsonString.toLowerCase() === "[done]") {
+                    console.log("SSE stream finished with [DONE] message.");
+                }
+            } else if (line.startsWith("event:")) {
+                // console.log("SSE Event:", line);
+            } else if (line.startsWith("id:")) {
+                // console.log("SSE ID:", line);
+            } else if (line.startsWith("retry:")) {
+                // console.log("SSE Retry:", line);
+            } else if (line === "") {
+                // console.log("SSE: Empty line (event separator)");
+            } else if (line) { // Non-empty line that doesn't match known SSE prefixes
+                console.warn("Received unexpected non-SSE line in stream:", line);
+            }
+        }
+
+
         saveButton.addEventListener('click', () => {
             const textToSave = outputContainer.textContent;
             if (!textToSave) {
                 alert("Nothing to save.");
                 return;
             }
-
             if (typeof docx === 'undefined') {
                 alert("DOCX library is not loaded. Cannot save as .docx.");
                 console.error("Attempted to save DOCX, but 'docx' object is undefined.");
                 return;
             }
             const { Document, Packer, Paragraph, TextRun } = docx;
-
-            // Create an array of Paragraph objects, one for each line of text
             const paragraphs = textToSave.split('\n').map(line =>
-                new Paragraph({
-                    children: [new TextRun(line)],
-                })
+                new Paragraph({ children: [new TextRun(line)] })
             );
-
-            const doc = new Document({
-                sections: [{
-                    properties: {},
-                    children: paragraphs,
-                }],
-            });
+            const doc = new Document({ sections: [{ properties: {}, children: paragraphs }] });
 
             Packer.toBlob(doc).then(blob => {
                 const url = URL.createObjectURL(blob);
@@ -285,7 +279,6 @@
                 alert("Error creating DOCX file. Check console.");
             });
         });
-
     </script>
 </body>
 </html>
