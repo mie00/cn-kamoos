@@ -1,9 +1,10 @@
+@@ -0,0 +1,311 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini API Frontend (Non-Streaming)</title>
+    <title>Gemini API Frontend</title>
     <style>
         body {
             font-family: sans-serif;
@@ -87,7 +88,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>Gemini API Frontend (Non-Streaming)</h1>
+        <h1>Gemini API Frontend</h1>
 
         <label for="apiKey">Gemini API Key:</label>
         <input type="password" id="apiKey" placeholder="Enter your API Key">
@@ -100,9 +101,8 @@
         <input type="file" id="userFile" accept=".txt">
         <div id="userFileInfo" class="file-info"></div>
 
-        <label for="modelName">Model Name:</label>
+        <label for="modelName">Model Name (optional, defaults to gemini-1.5-pro-preview-05-06):</label>
         <input type="text" id="modelName" value="gemini-1.5-pro-preview-05-06">
-        <small>e.g., gemini-1.5-pro-latest, gemini-1.5-flash-latest, or gemini-2.0-flash (from your curl)</small>
 
 
         <button id="generateButton">Generate</button>
@@ -161,7 +161,7 @@
 
         generateButton.addEventListener('click', async () => {
             const apiKey = apiKeyInput.value.trim();
-            const modelName = modelNameInput.value.trim();
+            const modelName = modelNameInput.value.trim() || "gemini-1.5-pro-preview-05-06";
 
             if (!apiKey) {
                 alert("Please enter your API Key.");
@@ -175,10 +175,6 @@
                 alert("Please upload a user prompt file.");
                 return;
             }
-            if (!modelName) {
-                alert("Please enter a model name.");
-                return;
-            }
 
             outputContainer.textContent = ""; // Clear previous output
             outputContainer.classList.remove('error');
@@ -186,11 +182,8 @@
             generateButton.disabled = true;
             spinner.style.display = 'inline-block';
 
-            const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+            const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?key=${apiKey}`;
 
-            // Structure based on REST API for generateContent
-            // systemInstruction is top-level, camelCased.
-            // generationConfig is also top-level.
             const requestBody = {
                 "contents": [
                     {
@@ -200,19 +193,16 @@
                         ]
                     }
                 ],
-                "systemInstruction": { // camelCase is standard for Google REST APIs
+                "systemInstruction": { // Note: in REST API it's often camelCase 'systemInstruction'
                     "parts": [
                         { "text": systemPrompt }
                     ]
                 },
-                "generationConfig": {
-                    "responseMimeType": "text/plain" // As in your Python script
+                "generationConfig": { // Corresponds to GenerateContentConfig
+                    "responseMimeType": "text/plain"
                     // You can add other generationConfig parameters here, like:
-                    // "temperature": 0.9,
-                    // "topK": 1,
-                    // "topP": 1,
+                    // "temperature": 0.7,
                     // "maxOutputTokens": 2048,
-                    // "stopSequences": []
                 }
             };
 
@@ -225,39 +215,70 @@
                     body: JSON.stringify(requestBody)
                 });
 
-                const responseData = await response.json();
-
                 if (!response.ok) {
-                    const errorMessage = responseData?.error?.message || `API Error: ${response.status} - ${response.statusText}`;
+                    // Try to parse error from Gemini API
+                    let errorData;
+                    try {
+                        errorData = await response.json();
+                    } catch (e) {
+                        // If error response is not JSON
+                        throw new Error(`HTTP error ${response.status} - ${response.statusText}`);
+                    }
+                    const errorMessage = errorData?.error?.message || `API Error: ${response.status}`;
                     throw new Error(errorMessage);
                 }
 
-                // Extract text from the response
-                // Typical structure: responseData.candidates[0].content.parts[0].text
-                if (responseData.candidates &&
-                    responseData.candidates.length > 0 &&
-                    responseData.candidates[0].content &&
-                    responseData.candidates[0].content.parts &&
-                    responseData.candidates[0].content.parts.length > 0 &&
-                    responseData.candidates[0].content.parts[0].text) {
-                    
-                    outputContainer.textContent = responseData.candidates[0].content.parts[0].text;
-                    saveButton.disabled = false;
+                // Process the stream
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
 
-                } else if (responseData.promptFeedback && responseData.promptFeedback.blockReason) {
-                    // Handle cases where the prompt was blocked
-                    outputContainer.textContent = `Request blocked: ${responseData.promptFeedback.blockReason}`;
-                    if (responseData.promptFeedback.blockReasonMessage) {
-                         outputContainer.textContent += `\nMessage: ${responseData.promptFeedback.blockReasonMessage}`;
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) {
+                        break;
                     }
-                    outputContainer.classList.add('error');
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // The API streams newline-separated JSON objects.
+                    // Each object might not arrive in a single chunk.
+                    let boundary = buffer.indexOf('\n');
+                    while(boundary !== -1) {
+                        const jsonString = buffer.substring(0, boundary).trim();
+                        buffer = buffer.substring(boundary + 1);
+                        boundary = buffer.indexOf('\n');
+
+                        if (jsonString) { // Make sure it's not an empty line
+                            try {
+                                const chunkData = JSON.parse(jsonString);
+                                // console.log("Chunk data:", chunkData); // For debugging
+                                if (chunkData.candidates && chunkData.candidates[0].content && chunkData.candidates[0].content.parts && chunkData.candidates[0].content.parts[0].text) {
+                                    outputContainer.textContent += chunkData.candidates[0].content.parts[0].text;
+                                } else if (chunkData.error) {
+                                     outputContainer.textContent += `\nERROR from stream: ${chunkData.error.message}\n`;
+                                     console.error("Stream error chunk:", chunkData.error);
+                                }
+                            } catch (e) {
+                                console.error("Failed to parse JSON chunk:", jsonString, e);
+                                // outputContainer.textContent += `\n[Error parsing chunk: ${jsonString}]\n`;
+                            }
+                        }
+                    }
                 }
-                else {
-                    // Fallback if the expected structure is not found but no explicit error from response.ok
-                    console.error("Unexpected response structure:", responseData);
-                    outputContainer.textContent = "Received an unexpected response structure. Check console for details.";
-                    outputContainer.classList.add('error');
+                // Process any remaining buffer content (though for newline-delimited, this might not be strictly necessary if last line also ends with \n)
+                if (buffer.trim()) {
+                     try {
+                        const chunkData = JSON.parse(buffer.trim());
+                        if (chunkData.candidates && chunkData.candidates[0].content && chunkData.candidates[0].content.parts && chunkData.candidates[0].content.parts[0].text) {
+                            outputContainer.textContent += chunkData.candidates[0].content.parts[0].text;
+                        }
+                    } catch (e) {
+                        console.error("Failed to parse final JSON chunk:", buffer.trim(), e);
+                    }
                 }
+
+
+                saveButton.disabled = false;
 
             } catch (error) {
                 console.error("Error during generation:", error);
