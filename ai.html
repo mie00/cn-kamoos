@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini API Frontend Enhanced (SSE)</title>
+    <title>Gemini API Frontend - Advanced</title>
     <style>
         body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
         .container { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
@@ -17,12 +17,16 @@
             background-color: #007bff; color: white; padding: 10px 15px; border: none;
             border-radius: 4px; cursor: pointer; font-size: 16px; margin-right: 10px;
         }
+        button#stopButton { background-color: #dc3545; }
+        button#stopButton:hover { background-color: #c82333; }
         button:hover { background-color: #0056b3; }
         button:disabled { background-color: #ccc; cursor: not-allowed; }
-        #outputContainer {
+        #outputContainer, #usageMetadataContainer {
             margin-top: 20px; border: 1px solid #ddd; padding: 15px; background-color: #f9f9f9;
-            min-height: 150px; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word;
+            min-height: 50px; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word;
+            line-height: 1.6; /* Improved readability for multi-line metadata */
         }
+        #outputContainer {min-height: 150px;}
         .file-info { font-style: italic; font-size: 0.9em; color: #555; margin-bottom:10px; }
         .error { color: red; font-weight: bold; }
         .spinner {
@@ -34,12 +38,13 @@
     </style>
     <!-- Mammoth.js for DOCX to text -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
-    <!-- docx library for creating DOCX files -->
-    <script src="https://unpkg.com/docx@8.2.2/build/index.js"></script>
+    <!-- docx library for creating DOCX files - Using jsDelivr -->
+    <script src="https://cdn.jsdelivr.net/npm/docx@8.2.2/build/index.min.js"></script>
+
 </head>
 <body>
     <div class="container">
-        <h1>Gemini API Frontend Enhanced (SSE)</h1>
+        <h1>Gemini API Frontend - Advanced</h1>
 
         <label for="apiKey">Gemini API Key:</label>
         <input type="password" id="apiKey" placeholder="Enter your API Key">
@@ -51,14 +56,22 @@
         <input type="file" id="userFile" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
         <div id="userFileInfo" class="file-info"></div>
 
-        <label for="modelName">Model Name (default: gemini-2.5-pro-preview-05-06):</label>
-        <input type="text" id="modelName" value="gemini-2.5-pro-preview-05-06">
+        <label for="modelName">Model Name:</label>
+        <input type="text" id="modelName" value="gemini-1.5-pro-preview-05-06"> <!-- Default model -->
 
         <button id="generateButton">Generate</button>
+        <button id="stopButton" style="display:none;">Stop Generation</button>
         <div id="spinner" class="spinner"></div>
 
         <h2>Output:</h2>
         <div id="outputContainer"></div>
+
+        <h2>Usage Metadata:</h2>
+        <div id="usageMetadataContainer">
+            Prompt Tokens: N/A<br>
+            Candidates Tokens: N/A<br>
+            Total Tokens: N/A
+        </div>
 
         <button id="saveButton" style="margin-top: 15px;" disabled>Save Output as DOCX</button>
     </div>
@@ -69,12 +82,16 @@
         const userFileInput = document.getElementById('userFile');
         const modelNameInput = document.getElementById('modelName');
         const generateButton = document.getElementById('generateButton');
+        const stopButton = document.getElementById('stopButton');
         const outputContainer = document.getElementById('outputContainer');
+        const usageMetadataContainer = document.getElementById('usageMetadataContainer');
         const saveButton = document.getElementById('saveButton');
         const userFileInfo = document.getElementById('userFileInfo');
         const spinner = document.getElementById('spinner');
 
         let userPromptText = "";
+        let abortController = null;
+        let displayedPromptTokenCount = null; // Store prompt token count once received
 
         function loadApiKey() {
             const savedKey = localStorage.getItem('geminiApiKey');
@@ -97,8 +114,12 @@
             loadApiKey();
             loadSystemPrompt();
             if (typeof docx === 'undefined') {
-                console.error("DOCX library not loaded!");
-                alert("Error: DOCX saving library not loaded. Please check console.");
+                console.error("DOCX library (docx) not loaded!");
+            } else {
+                console.log("DOCX library loaded successfully.");
+            }
+             if (typeof mammoth === 'undefined') {
+                console.error("DOCX reading library (mammoth) not loaded!");
             }
         });
 
@@ -108,6 +129,9 @@
             if (file) {
                 userFileInfo.textContent = `Loading: ${file.name}...`;
                 try {
+                    if (typeof mammoth === 'undefined') {
+                        throw new Error("Mammoth.js library not loaded. Cannot read DOCX.");
+                    }
                     const arrayBuffer = await file.arrayBuffer();
                     const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
                     userPromptText = result.value;
@@ -124,139 +148,195 @@
             }
         });
 
+        stopButton.addEventListener('click', () => {
+            if (abortController) {
+                abortController.abort();
+                console.log("Generation aborted by user.");
+            }
+        });
+
+        function resetUIForNewGeneration() {
+            outputContainer.textContent = "";
+            outputContainer.classList.remove('error');
+            usageMetadataContainer.innerHTML = "Prompt Tokens: N/A<br>Candidates Tokens: N/A<br>Total Tokens: N/A";
+            usageMetadataContainer.classList.remove('error');
+            displayedPromptTokenCount = null; // Reset for the new generation
+            saveButton.disabled = true;
+            generateButton.disabled = true;
+            stopButton.style.display = 'inline-block';
+            spinner.style.display = 'inline-block';
+        }
+
+        function finalizeUIAfterGeneration(wasError = false) {
+            generateButton.disabled = false;
+            stopButton.style.display = 'none';
+            spinner.style.display = 'none';
+            if (!wasError && outputContainer.textContent.trim()) {
+                saveButton.disabled = false;
+            }
+        }
+
         generateButton.addEventListener('click', async () => {
             const apiKey = apiKeyInput.value.trim();
             const systemPrompt = systemPromptTextarea.value.trim();
-            const modelName = modelNameInput.value.trim() || "gemini-2.5-pro-preview-05-06";
+            const modelName = modelNameInput.value.trim() || "gemini-1.5-pro-preview-05-06";
 
             if (!apiKey) { alert("Please enter your API Key."); return; }
             if (!systemPrompt) { alert("Please enter a system prompt."); return; }
             if (!userPromptText) { alert("Please upload a user prompt DOCX file."); return; }
 
-            outputContainer.textContent = "";
-            outputContainer.classList.remove('error');
-            saveButton.disabled = true;
-            generateButton.disabled = true;
-            spinner.style.display = 'inline-block';
+            resetUIForNewGeneration();
             saveApiKey();
             saveSystemPrompt();
 
-            // Using alt=sse as requested. This implies SSE formatted response.
+            abortController = new AbortController();
+            const signal = abortController.signal;
+
             const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?key=${apiKey}&alt=sse`;
 
             const requestBody = {
                 "contents": [{ "role": "user", "parts": [{ "text": userPromptText }] }],
                 "systemInstruction": { "parts": [{ "text": systemPrompt }] },
-                "generationConfig": { "responseMimeType": "text/plain" } // This might be overridden or complemented by SSE format.
+                "generationConfig": { "responseMimeType": "text/plain" }
             };
 
+            let reader;
             try {
                 const response = await fetch(API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(requestBody)
+                    body: JSON.stringify(requestBody),
+                    signal: signal
                 });
 
                 if (!response.ok) {
                     let errorData;
-                    try { errorData = await response.json(); } // Error might not be SSE
+                    try { errorData = await response.json(); }
                     catch (e) { throw new Error(`HTTP error ${response.status} - ${response.statusText}`); }
                     const errorMessage = errorData?.error?.message || `API Error: ${response.status}`;
                     throw new Error(errorMessage);
                 }
 
-                const reader = response.body.getReader();
+                reader = response.body.getReader();
                 const decoder = new TextDecoder();
-                let buffer = ""; // Holds incomplete lines from stream
+                let buffer = "";
 
                 while (true) {
+                    if (signal.aborted) {
+                        console.log("Stream reading aborted.");
+                        outputContainer.textContent += "\n\n--- Generation stopped by user ---";
+                        break;
+                    }
+
                     const { value, done } = await reader.read();
+
                     if (done) {
-                        // Process any remaining data in the buffer if it forms a valid SSE line
-                        if (buffer.trim()) {
-                            processSseLine(buffer.trim());
-                        }
+                        if (buffer.trim()) processSseLine(buffer.trim());
                         break;
                     }
 
                     buffer += decoder.decode(value, { stream: true });
-                    // console.log("Raw Buffer Add:", JSON.stringify(decoder.decode(value, { stream: true })));
-                    // console.log("Current Buffer:", JSON.stringify(buffer));
-
-
                     let newlineIndex;
-                    // Process all complete lines in the buffer
                     while ((newlineIndex = buffer.indexOf('\n')) >= 0) {
                         const line = buffer.substring(0, newlineIndex).trim();
-                        buffer = buffer.substring(newlineIndex + 1); // Remaining part of the buffer
-
+                        buffer = buffer.substring(newlineIndex + 1);
                         processSseLine(line);
                     }
                 }
-                saveButton.disabled = false;
+                // finalizeUIAfterGeneration is called in the finally block or on normal completion inside try
+                if (!signal.aborted) { // Only call if not aborted, as abort path handles its own finalization
+                    finalizeUIAfterGeneration();
+                }
 
             } catch (error) {
-                console.error("Error during generation:", error);
-                outputContainer.textContent = `Error: ${error.message}`;
-                outputContainer.classList.add('error');
+                if (error.name === 'AbortError') {
+                    console.log("Fetch aborted.");
+                    // Message already added to outputContainer during abort signal check
+                } else {
+                    console.error("Error during generation:", error);
+                    outputContainer.textContent = `Error: ${error.message}`;
+                    outputContainer.classList.add('error');
+                }
+                finalizeUIAfterGeneration(true);
             } finally {
-                generateButton.disabled = false;
-                spinner.style.display = 'none';
+                if (reader) {
+                    try {
+                        if (!reader.closed) { // Check if reader is not already closed
+                           await reader.cancel();
+                           console.log("Stream reader cancelled.");
+                        }
+                    } catch (cancelError) {
+                        console.warn("Error cancelling stream reader:", cancelError);
+                    }
+                }
+                abortController = null;
+                // Ensure UI finalization if it wasn't handled due to an unexpected exit
+                if (generateButton.disabled && stopButton.style.display !== 'none') {
+                     finalizeUIAfterGeneration(true); // Assume error or incomplete state
+                }
             }
         });
 
         function processSseLine(line) {
-            // console.log("Processing line:", JSON.stringify(line));
             if (line.startsWith("data:")) {
-                const jsonString = line.substring(5).trim(); // Remove "data:" prefix and trim
-                if (jsonString && jsonString.toLowerCase() !== "[done]") { // Check for a common "done" marker
+                const jsonString = line.substring(5).trim();
+                if (jsonString && jsonString.toLowerCase() !== "[done]") {
                     try {
                         const chunkData = JSON.parse(jsonString);
+
                         if (chunkData.candidates?.[0]?.content?.parts?.[0]?.text) {
                             outputContainer.textContent += chunkData.candidates[0].content.parts[0].text;
-                        } else if (chunkData.promptFeedback) {
-                            // Handle prompt feedback if necessary, e.g. safety ratings
-                            // console.log("Prompt Feedback:", chunkData.promptFeedback);
-                        } else if (chunkData.error) {
+                        }
+
+                        if (chunkData.usageMetadata) {
+                            const { promptTokenCount, candidatesTokenCount, totalTokenCount } = chunkData.usageMetadata;
+
+                            // Capture promptTokenCount once
+                            if (displayedPromptTokenCount === null && promptTokenCount !== undefined) {
+                                displayedPromptTokenCount = promptTokenCount;
+                            }
+
+                            const promptDisplay = displayedPromptTokenCount !== null ? displayedPromptTokenCount : (promptTokenCount !== undefined ? promptTokenCount : "N/A");
+                            const candidatesDisplay = candidatesTokenCount !== undefined ? candidatesTokenCount : "N/A";
+                            const totalDisplay = totalTokenCount !== undefined ? totalTokenCount : "N/A";
+
+                            usageMetadataContainer.innerHTML =
+                                `Prompt Tokens: ${promptDisplay}<br>` +
+                                `Candidates Tokens: ${candidatesDisplay}<br>` +
+                                `Total Tokens: ${totalDisplay}`;
+                        }
+
+                        if (chunkData.promptFeedback) { /* console.log("Prompt Feedback:", chunkData.promptFeedback); */ }
+                        else if (chunkData.error) {
                             const errorMsg = chunkData.error.message || "Unknown error in stream chunk";
                             outputContainer.textContent += `\nERROR from stream: ${errorMsg}\n`;
+                            outputContainer.classList.add('error');
                             console.error("Stream error chunk:", chunkData.error);
                         }
-                        // If there are other fields in chunkData you need to handle, add them here.
                     } catch (e) {
                         console.error("Failed to parse JSON from data line:", jsonString, e);
-                        // It's possible a single JSON object is split over multiple 'data:' lines
-                        // (though less common for Gemini's simple text stream).
-                        // For this implementation, we assume each 'data:' line is a complete JSON.
-                        // A more complex parser would buffer 'data:' content until an event boundary (empty line).
                         outputContainer.textContent += `\n[Error parsing stream data: ${jsonString.substring(0,50)}...]\n`;
+                        outputContainer.classList.add('error');
                     }
                 } else if (jsonString.toLowerCase() === "[done]") {
                     console.log("SSE stream finished with [DONE] message.");
                 }
-            } else if (line.startsWith("event:")) {
-                // console.log("SSE Event:", line);
-            } else if (line.startsWith("id:")) {
-                // console.log("SSE ID:", line);
-            } else if (line.startsWith("retry:")) {
-                // console.log("SSE Retry:", line);
-            } else if (line === "") {
-                // console.log("SSE: Empty line (event separator)");
-            } else if (line) { // Non-empty line that doesn't match known SSE prefixes
+            } else if (line.startsWith("event:") || line.startsWith("id:") || line.startsWith("retry:") || line === "") {
+                // console.log("SSE control line:", line);
+            } else if (line) {
                 console.warn("Received unexpected non-SSE line in stream:", line);
             }
         }
 
-
         saveButton.addEventListener('click', () => {
             const textToSave = outputContainer.textContent;
-            if (!textToSave) {
+            if (!textToSave.trim()) {
                 alert("Nothing to save.");
                 return;
             }
-            if (typeof docx === 'undefined') {
-                alert("DOCX library is not loaded. Cannot save as .docx.");
-                console.error("Attempted to save DOCX, but 'docx' object is undefined.");
+            if (typeof docx === 'undefined' || !docx.Document) {
+                alert("DOCX library is not loaded correctly. Cannot save as .docx.");
+                console.error("Attempted to save DOCX, but 'docx' object or 'docx.Document' is undefined.");
                 return;
             }
             const { Document, Packer, Paragraph, TextRun } = docx;
