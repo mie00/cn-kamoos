@@ -53,8 +53,8 @@
         <input type="file" id="userFile" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
         <div id="userFileInfo" class="file-info"></div>
 
-        <label for="modelName">Model Name (default: gemini-1.5-pro-preview-05-06):</label>
-        <input type="text" id="modelName" value="gemini-1.5-pro-preview-05-06">
+        <label for="modelName">Model Name (default: gemini-2.5-pro-preview-05-06):</label>
+        <input type="text" id="modelName" value="gemini-2.5-pro-preview-05-06">
 
         <button id="generateButton">Generate</button>
         <div id="spinner" class="spinner"></div>
@@ -133,7 +133,7 @@
         generateButton.addEventListener('click', async () => {
             const apiKey = apiKeyInput.value.trim();
             const systemPrompt = systemPromptTextarea.value.trim();
-            const modelName = modelNameInput.value.trim() || "gemini-1.5-pro-preview-05-06"; // Default model
+            const modelName = modelNameInput.value.trim() || "gemini-2.5-pro-preview-05-06"; // Default model
 
             if (!apiKey) { alert("Please enter your API Key."); return; }
             if (!systemPrompt) { alert("Please enter a system prompt."); return; }
