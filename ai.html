@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini API Frontend</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        .container {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        label {
+            display: block;
+            margin-top: 15px;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="file"], input[type="password"], input[type="text"] {
+            width: calc(100% - 22px);
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        #outputContainer {
+            margin-top: 20px;
+            border: 1px solid #ddd;
+            padding: 15px;
+            background-color: #f9f9f9;
+            min-height: 100px;
+            border-radius: 4px;
+            white-space: pre-wrap; /* Preserve line breaks and spaces */
+            word-wrap: break-word;
+        }
+        .file-info {
+            font-style: italic;
+            font-size: 0.9em;
+            color: #555;
+            margin-bottom:10px;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3; /* Light grey */
+            border-top: 4px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: none; /* Hidden by default */
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Gemini API Frontend</h1>
+
+        <label for="apiKey">Gemini API Key:</label>
+        <input type="password" id="apiKey" placeholder="Enter your API Key">
+
+        <label for="systemFile">System Prompt File (system.txt):</label>
+        <input type="file" id="systemFile" accept=".txt">
+        <div id="systemFileInfo" class="file-info"></div>
+
+        <label for="userFile">User Prompt File (user.txt):</label>
+        <input type="file" id="userFile" accept=".txt">
+        <div id="userFileInfo" class="file-info"></div>
+
+        <label for="modelName">Model Name (optional, defaults to gemini-1.5-pro-preview-05-06):</label>
+        <input type="text" id="modelName" value="gemini-1.5-pro-preview-05-06">
+
+
+        <button id="generateButton">Generate</button>
+        <div id="spinner" class="spinner"></div>
+
+        <h2>Output:</h2>
+        <div id="outputContainer"></div>
+
+        <button id="saveButton" style="margin-top: 15px;" disabled>Save Output as TXT</button>
+    </div>
+
+    <script>
+        const apiKeyInput = document.getElementById('apiKey');
+        const systemFileInput = document.getElementById('systemFile');
+        const userFileInput = document.getElementById('userFile');
+        const modelNameInput = document.getElementById('modelName');
+        const generateButton = document.getElementById('generateButton');
+        const outputContainer = document.getElementById('outputContainer');
+        const saveButton = document.getElementById('saveButton');
+        const systemFileInfo = document.getElementById('systemFileInfo');
+        const userFileInfo = document.getElementById('userFileInfo');
+        const spinner = document.getElementById('spinner');
+
+        let systemPrompt = "";
+        let userPrompt = "";
+
+        function handleFileSelect(event, type) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    if (type === 'system') {
+                        systemPrompt = e.target.result;
+                        systemFileInfo.textContent = `Loaded: ${file.name} (${file.size} bytes)`;
+                    } else if (type === 'user') {
+                        userPrompt = e.target.result;
+                        userFileInfo.textContent = `Loaded: ${file.name} (${file.size} bytes)`;
+                    }
+                };
+                reader.onerror = (e) => {
+                    const infoDiv = type === 'system' ? systemFileInfo : userFileInfo;
+                    infoDiv.textContent = `Error reading file: ${file.name}`;
+                    infoDiv.classList.add('error');
+                }
+                reader.readAsText(file);
+            } else {
+                 const infoDiv = type === 'system' ? systemFileInfo : userFileInfo;
+                 infoDiv.textContent = "";
+                 if(type === 'system') systemPrompt = "";
+                 if(type === 'user') userPrompt = "";
+            }
+        }
+
+        systemFileInput.addEventListener('change', (e) => handleFileSelect(e, 'system'));
+        userFileInput.addEventListener('change', (e) => handleFileSelect(e, 'user'));
+
+        generateButton.addEventListener('click', async () => {
+            const apiKey = apiKeyInput.value.trim();
+            const modelName = modelNameInput.value.trim() || "gemini-1.5-pro-preview-05-06";
+
+            if (!apiKey) {
+                alert("Please enter your API Key.");
+                return;
+            }
+            if (!systemPrompt) {
+                alert("Please upload a system prompt file.");
+                return;
+            }
+            if (!userPrompt) {
+                alert("Please upload a user prompt file.");
+                return;
+            }
+
+            outputContainer.textContent = ""; // Clear previous output
+            outputContainer.classList.remove('error');
+            saveButton.disabled = true;
+            generateButton.disabled = true;
+            spinner.style.display = 'inline-block';
+
+            const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?key=${apiKey}`;
+
+            const requestBody = {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [
+                            { "text": userPrompt }
+                        ]
+                    }
+                ],
+                "systemInstruction": { // Note: in REST API it's often camelCase 'systemInstruction'
+                    "parts": [
+                        { "text": systemPrompt }
+                    ]
+                },
+                "generationConfig": { // Corresponds to GenerateContentConfig
+                    "responseMimeType": "text/plain"
+                    // You can add other generationConfig parameters here, like:
+                    // "temperature": 0.7,
+                    // "maxOutputTokens": 2048,
+                }
+            };
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                if (!response.ok) {
+                    // Try to parse error from Gemini API
+                    let errorData;
+                    try {
+                        errorData = await response.json();
+                    } catch (e) {
+                        // If error response is not JSON
+                        throw new Error(`HTTP error ${response.status} - ${response.statusText}`);
+                    }
+                    const errorMessage = errorData?.error?.message || `API Error: ${response.status}`;
+                    throw new Error(errorMessage);
+                }
+
+                // Process the stream
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) {
+                        break;
+                    }
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // The API streams newline-separated JSON objects.
+                    // Each object might not arrive in a single chunk.
+                    let boundary = buffer.indexOf('\n');
+                    while(boundary !== -1) {
+                        const jsonString = buffer.substring(0, boundary).trim();
+                        buffer = buffer.substring(boundary + 1);
+                        boundary = buffer.indexOf('\n');
+
+                        if (jsonString) { // Make sure it's not an empty line
+                            try {
+                                const chunkData = JSON.parse(jsonString);
+                                // console.log("Chunk data:", chunkData); // For debugging
+                                if (chunkData.candidates && chunkData.candidates[0].content && chunkData.candidates[0].content.parts && chunkData.candidates[0].content.parts[0].text) {
+                                    outputContainer.textContent += chunkData.candidates[0].content.parts[0].text;
+                                } else if (chunkData.error) {
+                                     outputContainer.textContent += `\nERROR from stream: ${chunkData.error.message}\n`;
+                                     console.error("Stream error chunk:", chunkData.error);
+                                }
+                            } catch (e) {
+                                console.error("Failed to parse JSON chunk:", jsonString, e);
+                                // outputContainer.textContent += `\n[Error parsing chunk: ${jsonString}]\n`;
+                            }
+                        }
+                    }
+                }
+                // Process any remaining buffer content (though for newline-delimited, this might not be strictly necessary if last line also ends with \n)
+                if (buffer.trim()) {
+                     try {
+                        const chunkData = JSON.parse(buffer.trim());
+                        if (chunkData.candidates && chunkData.candidates[0].content && chunkData.candidates[0].content.parts && chunkData.candidates[0].content.parts[0].text) {
+                            outputContainer.textContent += chunkData.candidates[0].content.parts[0].text;
+                        }
+                    } catch (e) {
+                        console.error("Failed to parse final JSON chunk:", buffer.trim(), e);
+                    }
+                }
+
+
+                saveButton.disabled = false;
+
+            } catch (error) {
+                console.error("Error during generation:", error);
+                outputContainer.textContent = `Error: ${error.message}`;
+                outputContainer.classList.add('error');
+            } finally {
+                generateButton.disabled = false;
+                spinner.style.display = 'none';
+            }
+        });
+
+        saveButton.addEventListener('click', () => {
+            const textToSave = outputContainer.textContent;
+            if (!textToSave) {
+                alert("Nothing to save.");
+                return;
+            }
+            const blob = new Blob([textToSave], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'gemini_output.txt';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+
+    </script>
+</body>
+</html>
