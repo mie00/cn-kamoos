@@ -339,10 +339,36 @@
                 console.error("Attempted to save DOCX, but 'docx' object or 'docx.Document' is undefined.");
                 return;
             }
-            const { Document, Packer, Paragraph, TextRun } = docx;
-            const paragraphs = textToSave.split('\n').map(line =>
-                new Paragraph({ children: [new TextRun(line)] })
-            );
+            const { Document, Packer, Paragraph, TextRun, AlignmentType } = docx; // Added AlignmentType
+            const lines = textToSave.split('\n');
+            const paragraphs = [];
+
+            for (const line of lines) {
+                let textContent = line; // Default to the original line content
+                let paragraphAlignment = undefined; // Default alignment
+                const trimmedLine = line.trim();
+
+                // Check for <original>...</original> tags
+                const originalMatch = trimmedLine.match(/^<original>(.*?)<\/original>$/);
+                if (originalMatch) {
+                    textContent = originalMatch[1]; // Use content within tags
+                    paragraphAlignment = AlignmentType.LEFT;
+                } else {
+                    // Check for <generated>...</generated> tags if not original
+                    const generatedMatch = trimmedLine.match(/^<generated>(.*?)<\/generated>$/);
+                    if (generatedMatch) {
+                        textContent = generatedMatch[1]; // Use content within tags
+                        paragraphAlignment = AlignmentType.RIGHT;
+                    }
+                }
+
+                const paraOptions = { children: [new TextRun(textContent)] };
+                if (paragraphAlignment) {
+                    paraOptions.alignment = paragraphAlignment;
+                }
+                paragraphs.push(new Paragraph(paraOptions));
+            }
+
             const doc = new Document({ sections: [{ properties: {}, children: paragraphs }] });
 
             Packer.toBlob(doc).then(blob => {
