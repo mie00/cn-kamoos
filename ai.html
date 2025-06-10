@@ -494,7 +494,7 @@
 
                     // Attach pending footnote references to the last meaningful paragraph or a new one if none exists
                     if (pendingFootnoteRefs.length > 0) {
-                        if (lastMeaningfulParagraph?.options) {
+                        if (lastMeaningfulParagraph) {
                             lastMeaningfulParagraph.options.children.push(...pendingFootnoteRefs);
                         } else {
                             // If no preceding meaningful paragraph, create one just for these refs
