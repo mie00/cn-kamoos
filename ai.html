@@ -341,132 +341,95 @@
             }
             const { Document, Packer, Paragraph, TextRun, AlignmentType, FootnoteReferenceRun, Footnote } = docx;
             const paragraphs = [];
-            let currentIndex = 0;
             let footnoteNumber = 1;
             const docFootnotes = {};
 
-            // Helper function to process a text segment for notes and convert to runs
-            function processSegmentForNotes(segmentText, currentFootnoteNumber, footnotesContainer) {
-                const runs = [];
-                let textPointer = 0;
-                let noteNum = currentFootnoteNumber;
+            let htmlContent = textToSave;
+            htmlContent = htmlContent.replace(/<original>/g, '<div data-type="original">');
+            htmlContent = htmlContent.replace(/<\/original>/g, '</div>');
+            htmlContent = htmlContent.replace(/<generated>/g, '<div data-type="generated">');
+            htmlContent = htmlContent.replace(/<\/generated>/g, '</div>');
+            htmlContent = htmlContent.replace(/<note>/g, '<span data-type="note">');
+            htmlContent = htmlContent.replace(/<\/note>/g, '</span>');
 
-                while (textPointer < segmentText.length) {
-                    const noteOpenIndex = segmentText.indexOf("<note>", textPointer);
-                    if (noteOpenIndex === -1) { // No more notes in this segment
-                        if (textPointer < segmentText.length) {
-                            runs.push(new TextRun(segmentText.substring(textPointer)));
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = htmlContent;
+
+            function parseLineForDocxRuns(lineHtml, currentFootnoteNum, footnotesMap) {
+                const lineRuns = [];
+                const lineParsingDiv = document.createElement('div');
+                lineParsingDiv.innerHTML = lineHtml;
+                let updatedFootnoteNum = currentFootnoteNum;
+
+                function extractRunsFromNode(node) {
+                    if (node.nodeType === Node.TEXT_NODE) {
+                        lineRuns.push(new TextRun(node.nodeValue));
+                    } else if (node.nodeType === Node.ELEMENT_NODE) {
+                        if (node.dataset.type === 'note') {
+                            const noteContent = node.textContent || "";
+                            footnotesMap[updatedFootnoteNum] = new Footnote({
+                                children: [new Paragraph({
+                                    children: [new TextRun(noteContent)],
+                                    alignment: AlignmentType.RIGHT,
+                                    bidirectional: true,
+                                })]
+                            });
+                            lineRuns.push(new FootnoteReferenceRun(updatedFootnoteNum));
+                            updatedFootnoteNum++;
+                        } else {
+                            for (const child of node.childNodes) {
+                                extractRunsFromNode(child);
+                            }
                         }
-                        break;
                     }
-
-                    // Add text before the note
-                    if (noteOpenIndex > textPointer) {
-                        runs.push(new TextRun(segmentText.substring(textPointer, noteOpenIndex)));
-                    }
-
-                    // Process the note
-                    const noteCloseIndex = segmentText.indexOf("</note>", noteOpenIndex + "<note>".length);
-                    if (noteCloseIndex === -1) { // Malformed note tag
-                        console.warn(`Malformed <note> tag at position ${noteOpenIndex} in segment "${segmentText.substring(0,50)}...". Treating rest of segment as plain text from <note> onwards.`);
-                        runs.push(new TextRun(segmentText.substring(noteOpenIndex))); // Include the <note> tag itself as text
-                        break;
-                    }
-
-                    const noteContent = segmentText.substring(noteOpenIndex + "<note>".length, noteCloseIndex);
-                    
-                    footnotesContainer[noteNum] = new Footnote({
-                        children: [new Paragraph({
-                            children: [new TextRun(noteContent)],
-                            alignment: AlignmentType.RIGHT,
-                            bidirectional: true,
-                        })]
-                    });
-                    runs.push(new FootnoteReferenceRun(noteNum));
-                    noteNum++;
-                    
-                    textPointer = noteCloseIndex + "</note>".length;
                 }
-                return { runs, updatedFootnoteNumber: noteNum };
+
+                for (const childNode of lineParsingDiv.childNodes) {
+                    extractRunsFromNode(childNode);
+                }
+                return { runs: lineRuns, updatedFootnoteNumber: updatedFootnoteNum };
             }
 
-            while (currentIndex < textToSave.length) {
-                const nextOriginalOpen = textToSave.indexOf("<original>", currentIndex);
-                const nextGeneratedOpen = textToSave.indexOf("<generated>", currentIndex);
+            for (const topLevelNode of tempDiv.childNodes) {
+                let linesToProcess = [];
+                let alignmentForLines = AlignmentType.LEFT; // Default alignment
 
-                let firstTagOpenIndex = -1;
-                let tagType = null; // 'original' or 'generated'
-                let openTagString = "";
-                let closeTagString = "";
-
-                if (nextOriginalOpen !== -1 && (nextGeneratedOpen === -1 || nextOriginalOpen < nextGeneratedOpen)) {
-                    firstTagOpenIndex = nextOriginalOpen;
-                    tagType = 'original';
-                    openTagString = "<original>";
-                    closeTagString = "</original>";
-                } else if (nextGeneratedOpen !== -1) {
-                    firstTagOpenIndex = nextGeneratedOpen;
-                    tagType = 'generated';
-                    openTagString = "<generated>";
-                    closeTagString = "</generated>";
-                }
-
-                if (firstTagOpenIndex === -1) { // No more <original> or <generated> tags
-                    if (currentIndex < textToSave.length) {
-                        const remainingText = textToSave.substring(currentIndex);
-                        remainingText.split('\n').forEach(line => {
-                            const { runs, updatedFootnoteNumber } = processSegmentForNotes(line, footnoteNumber, docFootnotes);
-                            footnoteNumber = updatedFootnoteNumber;
-                            if (runs.length > 0 || line.trim() === "") { // Create paragraph if runs exist or it's an intentionally empty line
-                                paragraphs.push(new Paragraph({ children: runs.length > 0 ? runs : [new TextRun("")] }));
-                            }
-                        });
+                if (topLevelNode.nodeType === Node.TEXT_NODE) {
+                    linesToProcess = topLevelNode.nodeValue.split('\n');
+                } else if (topLevelNode.nodeType === Node.ELEMENT_NODE) {
+                    const type = topLevelNode.dataset.type;
+                    if (type === 'original') {
+                        alignmentForLines = AlignmentType.LEFT;
+                        linesToProcess = topLevelNode.innerHTML.split('\n');
+                    } else if (type === 'generated') {
+                        alignmentForLines = AlignmentType.RIGHT;
+                        linesToProcess = topLevelNode.innerHTML.split('\n');
+                    } else if (type === 'note') { // A note tag as a direct child of tempDiv
+                        linesToProcess = [topLevelNode.outerHTML]; // Treat its own HTML as the line content
+                    } else if (topLevelNode.tagName) { // An unknown HTML element
+                        console.warn("Unhandled top-level HTML element:", topLevelNode.tagName, "; treating its content as plain text lines.");
+                        linesToProcess = topLevelNode.innerHTML.split('\n'); // Process its content as plain lines
+                    } else { // Unknown node type with no data-type
+                        console.warn("Skipping unhandled top-level node:", topLevelNode);
+                        continue;
                     }
-                    break; 
+                } else {
+                     // Ignore comments, processing instructions, etc.
+                    continue;
                 }
 
-                // Process text before the found <original> or <generated> tag
-                if (firstTagOpenIndex > currentIndex) {
-                    const plainTextSegment = textToSave.substring(currentIndex, firstTagOpenIndex);
-                    plainTextSegment.split('\n').forEach(line => {
-                        const { runs, updatedFootnoteNumber } = processSegmentForNotes(line, footnoteNumber, docFootnotes);
-                        footnoteNumber = updatedFootnoteNumber;
-                        if (runs.length > 0 || line.trim() === "") {
-                             paragraphs.push(new Paragraph({ children: runs.length > 0 ? runs : [new TextRun("")] }));
-                        }
-                    });
-                }
-
-                const tagContentStartIndex = firstTagOpenIndex + openTagString.length;
-                const tagContentEndIndex = textToSave.indexOf(closeTagString, tagContentStartIndex);
-
-                if (tagContentEndIndex === -1) {
-                    console.warn(`Malformed tag: ${openTagString} found at ${firstTagOpenIndex} without a closing ${closeTagString}. Treating subsequent content as plain.`);
-                    const remainingText = textToSave.substring(currentIndex); // Process from current index
-                    remainingText.split('\n').forEach(line => {
-                        const { runs, updatedFootnoteNumber } = processSegmentForNotes(line, footnoteNumber, docFootnotes);
-                        footnoteNumber = updatedFootnoteNumber;
-                        if (runs.length > 0 || line.trim() === "") {
-                            paragraphs.push(new Paragraph({ children: runs.length > 0 ? runs : [new TextRun("")] }));
-                        }
-                    });
-                    break; 
-                }
-
-                // Process tagged content (<original> or <generated>)
-                const taggedContent = textToSave.substring(tagContentStartIndex, tagContentEndIndex);
-                const alignment = (tagType === 'original') ? AlignmentType.LEFT : AlignmentType.RIGHT;
-                taggedContent.split('\n').forEach(line => {
-                    const { runs, updatedFootnoteNumber } = processSegmentForNotes(line, footnoteNumber, docFootnotes);
+                linesToProcess.forEach(lineContent => {
+                    const { runs, updatedFootnoteNumber } = parseLineForDocxRuns(lineContent, footnoteNumber, docFootnotes);
                     footnoteNumber = updatedFootnoteNumber;
-                    if (runs.length > 0 || line.trim() === "") {
+                    // Create paragraph even for an empty line if lineContent was "" (from split or original)
+                    // but only if it results in runs or was intentionally empty.
+                    if (runs.length > 0 || lineContent.trim() === "") {
                         paragraphs.push(new Paragraph({
-                            children: runs.length > 0 ? runs : [new TextRun("")],
-                            alignment: alignment
+                            children: runs.length > 0 ? runs : [new TextRun("")], // Ensure empty lines get a TextRun
+                            alignment: alignmentForLines
                         }));
                     }
                 });
-                currentIndex = tagContentEndIndex + closeTagString.length;
             }
 
             const doc = new Document({
