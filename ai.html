@@ -363,7 +363,7 @@
 
                 if (paragraphSegments.length === 1 && paragraphSegments[0].trim() === "") {
                     // Handle note containing only whitespace or being empty
-                    return [new Paragraph({ children: [new TextRun("")], alignment, bidirectional })];
+                    return []; // Return no paragraphs for an empty note
                 }
 
                 for (const segment of paragraphSegments) {
@@ -394,11 +394,8 @@
                     }
                     buildRunsForSegmentRecursive(tempParsingNode);
 
-                    // If a segment (e.g., from <br><br> or an empty line) results in no runs,
-                    // create a paragraph with an empty TextRun to represent the line break.
-                    if (runs.length === 0) {
-                        paragraphs.push(new Paragraph({ children: [new TextRun("")], alignment, bidirectional }));
-                    } else {
+                    // Only add a paragraph if the segment resulted in actual content runs
+                    if (runs.length > 0) {
                         paragraphs.push(new Paragraph({ children: runs, alignment, bidirectional }));
                     }
                 }
@@ -476,11 +473,10 @@
                 linesToProcess.forEach(lineContent => {
                     const { runs, updatedFootnoteNumber } = parseLineForDocxRuns(lineContent, footnoteNumber, docFootnotes);
                     footnoteNumber = updatedFootnoteNumber;
-                    // Create paragraph even for an empty line if lineContent was "" (from split or original)
-                    // but only if it results in runs or was intentionally empty.
-                    if (runs.length > 0 || lineContent.trim() === "") {
+                    // Only create a paragraph if the line resulted in actual content runs
+                    if (runs.length > 0) {
                         paragraphs.push(new Paragraph({
-                            children: runs.length > 0 ? runs : [new TextRun("")], // Ensure empty lines get a TextRun
+                            children: runs,
                             alignment: alignmentForLines
                         }));
                     }
