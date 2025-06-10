@@ -355,6 +355,56 @@
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = htmlContent;
 
+            // Helper function to create footnote paragraphs from HTML content
+            function createFootnoteParagraphsFromHtml(htmlString, alignment, bidirectional) {
+                const paragraphs = [];
+                // Normalize <br> tags (case-insensitive, with or without self-closing slash) and then split
+                const paragraphSegments = htmlString.replace(/<br\s*\/?>/gi, '<br>').split('<br>');
+
+                if (paragraphSegments.length === 1 && paragraphSegments[0].trim() === "") {
+                    // Handle note containing only whitespace or being empty
+                    return [new Paragraph({ children: [new TextRun("")], alignment, bidirectional })];
+                }
+
+                for (const segment of paragraphSegments) {
+                    const tempParsingNode = document.createElement('div');
+                    tempParsingNode.innerHTML = segment;
+                    const runs = [];
+
+                    function buildRunsForSegmentRecursive(parentNode, currentStyle = {}) {
+                        for (const childNode of parentNode.childNodes) {
+                            if (childNode.nodeType === Node.TEXT_NODE) {
+                                if (childNode.nodeValue) { // Avoid creating TextRun for empty strings
+                                    runs.push(new TextRun({ text: childNode.nodeValue, ...currentStyle }));
+                                }
+                            } else if (childNode.nodeType === Node.ELEMENT_NODE) {
+                                const tagName = childNode.tagName.toLowerCase();
+                                let newStyle = { ...currentStyle }; // Inherit styles from parent
+                                if (tagName === 'b' || tagName === 'strong') {
+                                    newStyle.bold = true;
+                                } else if (tagName === 'i' || tagName === 'em') {
+                                    newStyle.italics = true;
+                                } else if (tagName === 'u') {
+                                    newStyle.underline = {}; // Enable default underline
+                                }
+                                // Recursively process children with the new or inherited style
+                                buildRunsForSegmentRecursive(childNode, newStyle);
+                            }
+                        }
+                    }
+                    buildRunsForSegmentRecursive(tempParsingNode);
+
+                    // If a segment (e.g., from <br><br> or an empty line) results in no runs,
+                    // create a paragraph with an empty TextRun to represent the line break.
+                    if (runs.length === 0) {
+                        paragraphs.push(new Paragraph({ children: [new TextRun("")], alignment, bidirectional }));
+                    } else {
+                        paragraphs.push(new Paragraph({ children: runs, alignment, bidirectional }));
+                    }
+                }
+                return paragraphs;
+            }
+
             function parseLineForDocxRuns(lineHtml, currentFootnoteNum, footnotesMap) {
                 const lineRuns = [];
                 const lineParsingDiv = document.createElement('div');
@@ -366,17 +416,22 @@
                         lineRuns.push(new TextRun(node.nodeValue));
                     } else if (node.nodeType === Node.ELEMENT_NODE) {
                         if (node.dataset.type === 'note') {
-                            const noteContent = node.textContent || "";
+                            const noteHtmlContent = node.innerHTML; // Use innerHTML for note content
+                            const footnoteParagraphs = createFootnoteParagraphsFromHtml(
+                                noteHtmlContent,
+                                AlignmentType.RIGHT, // Footnotes are RTL
+                                true                 // Enable bidirectional text for footnotes
+                            );
+
                             footnotesMap[updatedFootnoteNum] = new Footnote({
-                                children: [new Paragraph({
-                                    children: [new TextRun(noteContent)],
-                                    alignment: AlignmentType.RIGHT,
-                                    bidirectional: true,
-                                })]
+                                children: footnoteParagraphs
                             });
                             lineRuns.push(new FootnoteReferenceRun(updatedFootnoteNum));
                             updatedFootnoteNum++;
                         } else {
+                            // For non-note elements within a line, recursively process their children
+                            // This typically shouldn't happen if input is well-formed with notes as spans
+                            // and original/generated as divs, but handles unexpected nesting.
                             for (const child of node.childNodes) {
                                 extractRunsFromNode(child);
                             }
