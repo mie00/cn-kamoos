@@ -374,8 +374,9 @@
                     function buildRunsForSegmentRecursive(parentNode, currentStyle = {}) {
                         for (const childNode of parentNode.childNodes) {
                             if (childNode.nodeType === Node.TEXT_NODE) {
-                                if (childNode.nodeValue) { // Avoid creating TextRun for empty strings
-                                    runs.push(new TextRun({ text: childNode.nodeValue, ...currentStyle }));
+                                const trimmedText = childNode.nodeValue.trim();
+                                if (trimmedText) { // Avoid creating TextRun for empty or whitespace-only strings
+                                    runs.push(new TextRun({ text: trimmedText, ...currentStyle }));
                                 }
                             } else if (childNode.nodeType === Node.ELEMENT_NODE) {
                                 const tagName = childNode.tagName.toLowerCase();
@@ -411,8 +412,9 @@
 
                 function extractRunsAndNotesRecursive(node) {
                     if (node.nodeType === Node.TEXT_NODE) {
-                        if (node.nodeValue) { // Avoid empty text runs
-                           lineRuns.push(new TextRun(node.nodeValue));
+                        const trimmedText = node.nodeValue.trim();
+                        if (trimmedText) { // Avoid empty or whitespace-only text runs
+                           lineRuns.push(new TextRun({ text: trimmedText }));
                         }
                     } else if (node.nodeType === Node.ELEMENT_NODE) {
                         if (node.dataset.type === 'note') {
@@ -477,7 +479,17 @@
                 }
 
                 linesToProcess.forEach(lineContent => {
-                    const { runs: currentLineRuns, pendingFootnoteRefs, updatedFootnoteNumber } = parseLineForDocxRuns(lineContent, footnoteNumber, docFootnotes);
+                    const trimmedLineContent = lineContent.trim();
+                    // If the line is empty after trimming, skip processing it entirely.
+                    if (!trimmedLineContent && !lineContent.includes("<note>")) { // also check if original lineContent had a note, to catch lines like "  <note>...</note>  "
+                         // A special case: if lineContent was "  <note>...</note>  ", trimmedLineContent might be "<note>...</note>"
+                         // If trimmedLineContent is empty AND original lineContent did not contain <note> (or other tags we might parse), then skip.
+                         // A simpler check: if trimmedLineContent is empty, it means no text. If it also doesn't produce notes, it's truly empty.
+                         // The parseLineForDocxRuns will handle an empty string correctly, returning no runs/refs.
+                         // So, we can simplify and always call it, relying on its internal logic and subsequent checks.
+                    }
+
+                    const { runs: currentLineRuns, pendingFootnoteRefs, updatedFootnoteNumber } = parseLineForDocxRuns(trimmedLineContent, footnoteNumber, docFootnotes);
                     footnoteNumber = updatedFootnoteNumber;
 
                     // Attach pending footnote references to the last meaningful paragraph or a new one if none exists
