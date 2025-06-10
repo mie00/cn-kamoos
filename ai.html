@@ -423,9 +423,9 @@
                                 true                 // Enable bidirectional text for footnotes
                             );
 
-                            footnotesMap[updatedFootnoteNum] = new Footnote({
+                            footnotesMap[updatedFootnoteNum] = {
                                 children: footnoteParagraphs
-                            });
+                            };
                             lineRuns.push(new FootnoteReferenceRun(updatedFootnoteNum));
                             updatedFootnoteNum++;
                         } else {
