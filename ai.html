@@ -339,9 +339,56 @@
                 console.error("Attempted to save DOCX, but 'docx' object or 'docx.Document' is undefined.");
                 return;
             }
-            const { Document, Packer, Paragraph, TextRun, AlignmentType } = docx;
+            const { Document, Packer, Paragraph, TextRun, AlignmentType, FootnoteReferenceRun, Footnote } = docx;
             const paragraphs = [];
             let currentIndex = 0;
+            let footnoteNumber = 1;
+            const docFootnotes = {};
+
+            // Helper function to process a text segment for notes and convert to runs
+            function processSegmentForNotes(segmentText, currentFootnoteNumber, footnotesContainer) {
+                const runs = [];
+                let textPointer = 0;
+                let noteNum = currentFootnoteNumber;
+
+                while (textPointer < segmentText.length) {
+                    const noteOpenIndex = segmentText.indexOf("<note>", textPointer);
+                    if (noteOpenIndex === -1) { // No more notes in this segment
+                        if (textPointer < segmentText.length) {
+                            runs.push(new TextRun(segmentText.substring(textPointer)));
+                        }
+                        break;
+                    }
+
+                    // Add text before the note
+                    if (noteOpenIndex > textPointer) {
+                        runs.push(new TextRun(segmentText.substring(textPointer, noteOpenIndex)));
+                    }
+
+                    // Process the note
+                    const noteCloseIndex = segmentText.indexOf("</note>", noteOpenIndex + "<note>".length);
+                    if (noteCloseIndex === -1) { // Malformed note tag
+                        console.warn(`Malformed <note> tag at position ${noteOpenIndex} in segment "${segmentText.substring(0,50)}...". Treating rest of segment as plain text from <note> onwards.`);
+                        runs.push(new TextRun(segmentText.substring(noteOpenIndex))); // Include the <note> tag itself as text
+                        break;
+                    }
+
+                    const noteContent = segmentText.substring(noteOpenIndex + "<note>".length, noteCloseIndex);
+                    
+                    footnotesContainer[noteNum] = new Footnote({
+                        children: [new Paragraph({
+                            children: [new TextRun(noteContent)],
+                            alignment: AlignmentType.RIGHT,
+                            bidirectional: true,
+                        })]
+                    });
+                    runs.push(new FootnoteReferenceRun(noteNum));
+                    noteNum++;
+                    
+                    textPointer = noteCloseIndex + "</note>".length;
+                }
+                return { runs, updatedFootnoteNumber: noteNum };
+            }
 
             while (currentIndex < textToSave.length) {
                 const nextOriginalOpen = textToSave.indexOf("<original>", currentIndex);
@@ -364,55 +411,71 @@
                     closeTagString = "</generated>";
                 }
 
-                if (firstTagOpenIndex === -1) { // No more tags
+                if (firstTagOpenIndex === -1) { // No more <original> or <generated> tags
                     if (currentIndex < textToSave.length) {
                         const remainingText = textToSave.substring(currentIndex);
                         remainingText.split('\n').forEach(line => {
-                            paragraphs.push(new Paragraph({ children: [new TextRun(line)] }));
+                            const { runs, updatedFootnoteNumber } = processSegmentForNotes(line, footnoteNumber, docFootnotes);
+                            footnoteNumber = updatedFootnoteNumber;
+                            if (runs.length > 0 || line.trim() === "") { // Create paragraph if runs exist or it's an intentionally empty line
+                                paragraphs.push(new Paragraph({ children: runs.length > 0 ? runs : [new TextRun("")] }));
+                            }
                         });
                     }
-                    break; // Exit loop
+                    break; 
                 }
 
-                // Process text before the found tag
+                // Process text before the found <original> or <generated> tag
                 if (firstTagOpenIndex > currentIndex) {
-                    const plainText = textToSave.substring(currentIndex, firstTagOpenIndex);
-                    plainText.split('\n').forEach(line => {
-                        paragraphs.push(new Paragraph({ children: [new TextRun(line)] }));
+                    const plainTextSegment = textToSave.substring(currentIndex, firstTagOpenIndex);
+                    plainTextSegment.split('\n').forEach(line => {
+                        const { runs, updatedFootnoteNumber } = processSegmentForNotes(line, footnoteNumber, docFootnotes);
+                        footnoteNumber = updatedFootnoteNumber;
+                        if (runs.length > 0 || line.trim() === "") {
+                             paragraphs.push(new Paragraph({ children: runs.length > 0 ? runs : [new TextRun("")] }));
+                        }
                     });
                 }
 
-                // Find the closing tag
                 const tagContentStartIndex = firstTagOpenIndex + openTagString.length;
                 const tagContentEndIndex = textToSave.indexOf(closeTagString, tagContentStartIndex);
 
                 if (tagContentEndIndex === -1) {
-                    // Malformed: open tag without a close. Treat rest of string from current index as plain.
                     console.warn(`Malformed tag: ${openTagString} found at ${firstTagOpenIndex} without a closing ${closeTagString}. Treating subsequent content as plain.`);
-                    if (currentIndex < textToSave.length) { // Ensure we use currentIndex for the remaining text
-                        const remainingText = textToSave.substring(currentIndex);
-                        remainingText.split('\n').forEach(line => {
-                           paragraphs.push(new Paragraph({ children: [new TextRun(line)] }));
-                        });
-                    }
-                    break; // Exit loop
+                    const remainingText = textToSave.substring(currentIndex); // Process from current index
+                    remainingText.split('\n').forEach(line => {
+                        const { runs, updatedFootnoteNumber } = processSegmentForNotes(line, footnoteNumber, docFootnotes);
+                        footnoteNumber = updatedFootnoteNumber;
+                        if (runs.length > 0 || line.trim() === "") {
+                            paragraphs.push(new Paragraph({ children: runs.length > 0 ? runs : [new TextRun("")] }));
+                        }
+                    });
+                    break; 
                 }
 
-                // Process tagged content
+                // Process tagged content (<original> or <generated>)
                 const taggedContent = textToSave.substring(tagContentStartIndex, tagContentEndIndex);
                 const alignment = (tagType === 'original') ? AlignmentType.LEFT : AlignmentType.RIGHT;
                 taggedContent.split('\n').forEach(line => {
-                    paragraphs.push(new Paragraph({
-                        children: [new TextRun(line)],
-                        alignment: alignment
-                    }));
+                    const { runs, updatedFootnoteNumber } = processSegmentForNotes(line, footnoteNumber, docFootnotes);
+                    footnoteNumber = updatedFootnoteNumber;
+                    if (runs.length > 0 || line.trim() === "") {
+                        paragraphs.push(new Paragraph({
+                            children: runs.length > 0 ? runs : [new TextRun("")],
+                            alignment: alignment
+                        }));
+                    }
                 });
-
-                // Update currentIndex to after the closing tag
                 currentIndex = tagContentEndIndex + closeTagString.length;
             }
 
-            const doc = new Document({ sections: [{ properties: {}, children: paragraphs }] });
+            const doc = new Document({
+                sections: [{
+                    properties: {},
+                    children: paragraphs
+                }],
+                footnotes: docFootnotes
+            });
 
             Packer.toBlob(doc).then(blob => {
                 const url = URL.createObjectURL(blob);
