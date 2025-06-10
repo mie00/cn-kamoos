@@ -376,7 +376,11 @@
                             if (childNode.nodeType === Node.TEXT_NODE) {
                                 const trimmedText = childNode.nodeValue.trim();
                                 if (trimmedText) { // Avoid creating TextRun for empty or whitespace-only strings
-                                    runs.push(new TextRun({ text: trimmedText, ...currentStyle }));
+                                    const textRunOpts = { text: trimmedText, ...currentStyle };
+                                    if (alignment === AlignmentType.RIGHT) { // 'alignment' is from createFootnoteParagraphsFromHtml
+                                        textRunOpts.rightToLeft = true;
+                                    }
+                                    runs.push(new TextRun(textRunOpts));
                                 }
                             } else if (childNode.nodeType === Node.ELEMENT_NODE) {
                                 const tagName = childNode.tagName.toLowerCase();
