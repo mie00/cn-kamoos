@@ -403,7 +403,7 @@
                 return paragraphs;
             }
 
-            function parseLineForDocxRuns(lineHtml, currentFootnoteNum, footnotesMap) {
+            function parseLineForDocxRuns(lineHtml, currentFootnoteNum, footnotesMap, currentAlignment) {
                 const lineRuns = [];
                 const pendingFootnoteRefs = [];
                 const lineParsingDiv = document.createElement('div');
@@ -414,7 +414,11 @@
                     if (node.nodeType === Node.TEXT_NODE) {
                         const trimmedText = node.nodeValue.trim();
                         if (trimmedText) { // Avoid empty or whitespace-only text runs
-                           lineRuns.push(new TextRun({ text: trimmedText }));
+                           const textRunOptions = { text: trimmedText };
+                           if (currentAlignment === AlignmentType.RIGHT) {
+                               textRunOptions.rightToLeft = true;
+                           }
+                           lineRuns.push(new TextRun(textRunOptions));
                         }
                     } else if (node.nodeType === Node.ELEMENT_NODE) {
                         if (node.dataset.type === 'note') {
@@ -489,7 +493,7 @@
                          // So, we can simplify and always call it, relying on its internal logic and subsequent checks.
                     }
 
-                    const { runs: currentLineRuns, pendingFootnoteRefs, updatedFootnoteNumber } = parseLineForDocxRuns(trimmedLineContent, footnoteNumber, docFootnotes);
+                    const { runs: currentLineRuns, pendingFootnoteRefs, updatedFootnoteNumber } = parseLineForDocxRuns(trimmedLineContent, footnoteNumber, docFootnotes, alignmentForLines);
                     footnoteNumber = updatedFootnoteNumber;
 
                     // Attach pending footnote references to the last meaningful paragraph or a new one if none exists
@@ -498,10 +502,14 @@
                             pendingFootnoteRefs.forEach(ref => lastMeaningfulParagraph.addChildElement(ref));
                         } else {
                             // If no preceding meaningful paragraph, create one just for these refs
-                            const refParagraph = new Paragraph({
+                            const paragraphOptions = {
                                 children: pendingFootnoteRefs,
                                 alignment: alignmentForLines // Use current block's alignment
-                            });
+                            };
+                            if (alignmentForLines === AlignmentType.RIGHT) {
+                                paragraphOptions.bidirectional = true;
+                            }
+                            const refParagraph = new Paragraph(paragraphOptions);
                             paragraphs.push(refParagraph);
                             // This ref-only paragraph is not considered "meaningful" for subsequent notes.
                         }
@@ -509,10 +517,14 @@
 
                     // If the current line has actual text content, create a new paragraph for it
                     if (currentLineRuns.length > 0) {
-                        const newPara = new Paragraph({
+                        const paragraphOptions = {
                             children: currentLineRuns,
                             alignment: alignmentForLines
-                        });
+                        };
+                        if (alignmentForLines === AlignmentType.RIGHT) {
+                            paragraphOptions.bidirectional = true;
+                        }
+                        const newPara = new Paragraph(paragraphOptions);
                         paragraphs.push(newPara);
                         lastMeaningfulParagraph = newPara; // This is now the last meaningful paragraph
                     }
