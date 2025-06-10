@@ -404,43 +404,49 @@
 
             function parseLineForDocxRuns(lineHtml, currentFootnoteNum, footnotesMap) {
                 const lineRuns = [];
+                const pendingFootnoteRefs = [];
                 const lineParsingDiv = document.createElement('div');
                 lineParsingDiv.innerHTML = lineHtml;
                 let updatedFootnoteNum = currentFootnoteNum;
 
-                function extractRunsFromNode(node) {
+                function extractRunsAndNotesRecursive(node) {
                     if (node.nodeType === Node.TEXT_NODE) {
-                        lineRuns.push(new TextRun(node.nodeValue));
+                        if (node.nodeValue) { // Avoid empty text runs
+                           lineRuns.push(new TextRun(node.nodeValue));
+                        }
                     } else if (node.nodeType === Node.ELEMENT_NODE) {
                         if (node.dataset.type === 'note') {
-                            const noteHtmlContent = node.innerHTML; // Use innerHTML for note content
+                            const noteHtmlContent = node.innerHTML;
                             const footnoteParagraphs = createFootnoteParagraphsFromHtml(
                                 noteHtmlContent,
-                                AlignmentType.RIGHT, // Footnotes are RTL
-                                true                 // Enable bidirectional text for footnotes
+                                AlignmentType.RIGHT,
+                                true
                             );
 
-                            footnotesMap[updatedFootnoteNum] = {
-                                children: footnoteParagraphs
-                            };
-                            lineRuns.push(new FootnoteReferenceRun(updatedFootnoteNum));
-                            updatedFootnoteNum++;
+                            // Only create a footnote if there's content for it
+                            if (footnoteParagraphs.length > 0) {
+                                footnotesMap[updatedFootnoteNum] = {
+                                    children: footnoteParagraphs
+                                };
+                                pendingFootnoteRefs.push(new FootnoteReferenceRun(updatedFootnoteNum));
+                                updatedFootnoteNum++;
+                            }
                         } else {
-                            // For non-note elements within a line, recursively process their children
-                            // This typically shouldn't happen if input is well-formed with notes as spans
-                            // and original/generated as divs, but handles unexpected nesting.
+                            // For other elements, recurse (e.g. <b>, <i> within the line, or unexpected elements)
                             for (const child of node.childNodes) {
-                                extractRunsFromNode(child);
+                                extractRunsAndNotesRecursive(child);
                             }
                         }
                     }
                 }
 
                 for (const childNode of lineParsingDiv.childNodes) {
-                    extractRunsFromNode(childNode);
+                    extractRunsAndNotesRecursive(childNode);
                 }
-                return { runs: lineRuns, updatedFootnoteNumber: updatedFootnoteNum };
+                return { runs: lineRuns, pendingFootnoteRefs: pendingFootnoteRefs, updatedFootnoteNumber: updatedFootnoteNum };
             }
+
+            let lastMeaningfulParagraph = null;
 
             for (const topLevelNode of tempDiv.childNodes) {
                 let linesToProcess = [];
@@ -471,14 +477,32 @@
                 }
 
                 linesToProcess.forEach(lineContent => {
-                    const { runs, updatedFootnoteNumber } = parseLineForDocxRuns(lineContent, footnoteNumber, docFootnotes);
+                    const { runs: currentLineRuns, pendingFootnoteRefs, updatedFootnoteNumber } = parseLineForDocxRuns(lineContent, footnoteNumber, docFootnotes);
                     footnoteNumber = updatedFootnoteNumber;
-                    // Only create a paragraph if the line resulted in actual content runs
-                    if (runs.length > 0) {
-                        paragraphs.push(new Paragraph({
-                            children: runs,
+
+                    // Attach pending footnote references to the last meaningful paragraph or a new one if none exists
+                    if (pendingFootnoteRefs.length > 0) {
+                        if (lastMeaningfulParagraph) {
+                            lastMeaningfulParagraph.options.children.push(...pendingFootnoteRefs);
+                        } else {
+                            // If no preceding meaningful paragraph, create one just for these refs
+                            const refParagraph = new Paragraph({
+                                children: pendingFootnoteRefs,
+                                alignment: alignmentForLines // Use current block's alignment
+                            });
+                            paragraphs.push(refParagraph);
+                            // This ref-only paragraph is not considered "meaningful" for subsequent notes.
+                        }
+                    }
+
+                    // If the current line has actual text content, create a new paragraph for it
+                    if (currentLineRuns.length > 0) {
+                        const newPara = new Paragraph({
+                            children: currentLineRuns,
                             alignment: alignmentForLines
-                        }));
+                        });
+                        paragraphs.push(newPara);
+                        lastMeaningfulParagraph = newPara; // This is now the last meaningful paragraph
                     }
                 });
             }
