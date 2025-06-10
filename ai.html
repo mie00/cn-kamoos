@@ -339,34 +339,77 @@
                 console.error("Attempted to save DOCX, but 'docx' object or 'docx.Document' is undefined.");
                 return;
             }
-            const { Document, Packer, Paragraph, TextRun, AlignmentType } = docx; // Added AlignmentType
-            const lines = textToSave.split('\n');
+            const { Document, Packer, Paragraph, TextRun, AlignmentType } = docx;
             const paragraphs = [];
+            let currentIndex = 0;
 
-            for (const line of lines) {
-                let textContent = line; // Default to the original line content
-                let paragraphAlignment = undefined; // Default alignment
-                const trimmedLine = line.trim();
+            while (currentIndex < textToSave.length) {
+                const nextOriginalOpen = textToSave.indexOf("<original>", currentIndex);
+                const nextGeneratedOpen = textToSave.indexOf("<generated>", currentIndex);
 
-                // Check for <original>...</original> tags
-                const originalMatch = trimmedLine.match(/^<original>(.*?)<\/original>$/);
-                if (originalMatch) {
-                    textContent = originalMatch[1]; // Use content within tags
-                    paragraphAlignment = AlignmentType.LEFT;
-                } else {
-                    // Check for <generated>...</generated> tags if not original
-                    const generatedMatch = trimmedLine.match(/^<generated>(.*?)<\/generated>$/);
-                    if (generatedMatch) {
-                        textContent = generatedMatch[1]; // Use content within tags
-                        paragraphAlignment = AlignmentType.RIGHT;
+                let firstTagOpenIndex = -1;
+                let tagType = null; // 'original' or 'generated'
+                let openTagString = "";
+                let closeTagString = "";
+
+                if (nextOriginalOpen !== -1 && (nextGeneratedOpen === -1 || nextOriginalOpen < nextGeneratedOpen)) {
+                    firstTagOpenIndex = nextOriginalOpen;
+                    tagType = 'original';
+                    openTagString = "<original>";
+                    closeTagString = "</original>";
+                } else if (nextGeneratedOpen !== -1) {
+                    firstTagOpenIndex = nextGeneratedOpen;
+                    tagType = 'generated';
+                    openTagString = "<generated>";
+                    closeTagString = "</generated>";
+                }
+
+                if (firstTagOpenIndex === -1) { // No more tags
+                    if (currentIndex < textToSave.length) {
+                        const remainingText = textToSave.substring(currentIndex);
+                        remainingText.split('\n').forEach(line => {
+                            paragraphs.push(new Paragraph({ children: [new TextRun(line)] }));
+                        });
                     }
+                    break; // Exit loop
                 }
 
-                const paraOptions = { children: [new TextRun(textContent)] };
-                if (paragraphAlignment) {
-                    paraOptions.alignment = paragraphAlignment;
+                // Process text before the found tag
+                if (firstTagOpenIndex > currentIndex) {
+                    const plainText = textToSave.substring(currentIndex, firstTagOpenIndex);
+                    plainText.split('\n').forEach(line => {
+                        paragraphs.push(new Paragraph({ children: [new TextRun(line)] }));
+                    });
                 }
-                paragraphs.push(new Paragraph(paraOptions));
+
+                // Find the closing tag
+                const tagContentStartIndex = firstTagOpenIndex + openTagString.length;
+                const tagContentEndIndex = textToSave.indexOf(closeTagString, tagContentStartIndex);
+
+                if (tagContentEndIndex === -1) {
+                    // Malformed: open tag without a close. Treat rest of string from current index as plain.
+                    console.warn(`Malformed tag: ${openTagString} found at ${firstTagOpenIndex} without a closing ${closeTagString}. Treating subsequent content as plain.`);
+                    if (currentIndex < textToSave.length) { // Ensure we use currentIndex for the remaining text
+                        const remainingText = textToSave.substring(currentIndex);
+                        remainingText.split('\n').forEach(line => {
+                           paragraphs.push(new Paragraph({ children: [new TextRun(line)] }));
+                        });
+                    }
+                    break; // Exit loop
+                }
+
+                // Process tagged content
+                const taggedContent = textToSave.substring(tagContentStartIndex, tagContentEndIndex);
+                const alignment = (tagType === 'original') ? AlignmentType.LEFT : AlignmentType.RIGHT;
+                taggedContent.split('\n').forEach(line => {
+                    paragraphs.push(new Paragraph({
+                        children: [new TextRun(line)],
+                        alignment: alignment
+                    }));
+                });
+
+                // Update currentIndex to after the closing tag
+                currentIndex = tagContentEndIndex + closeTagString.length;
             }
 
             const doc = new Document({ sections: [{ properties: {}, children: paragraphs }] });
