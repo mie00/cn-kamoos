@@ -26,7 +26,11 @@
             min-height: 50px; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word;
             line-height: 1.6; /* Improved readability for multi-line metadata */
         }
-        #outputContainer {min-height: 150px;}
+        #outputContainer {
+            min-height: 150px;
+            overflow: scroll;
+            max-height: 50svh;
+        }
         .file-info { font-style: italic; font-size: 0.9em; color: #555; margin-bottom:10px; }
         .error { color: red; font-weight: bold; }
         .spinner {
