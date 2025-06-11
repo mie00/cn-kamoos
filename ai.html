@@ -401,7 +401,7 @@
 
                     // Only add a paragraph if the segment resulted in actual content runs
                     if (runs.length > 0) {
-                        paragraphs.push(new Paragraph({ children: runs, alignment, bidirectional }));
+                        paragraphs.push(new Paragraph({ children: runs, bidirectional }));
                     }
                 }
                 return paragraphs;
@@ -508,7 +508,6 @@
                             // If no preceding meaningful paragraph, create one just for these refs
                             const paragraphOptions = {
                                 children: pendingFootnoteRefs,
-                                alignment: alignmentForLines // Use current block's alignment
                             };
                             if (alignmentForLines === AlignmentType.RIGHT) {
                                 paragraphOptions.bidirectional = true;
@@ -523,7 +522,6 @@
                     if (currentLineRuns.length > 0) {
                         const paragraphOptions = {
                             children: currentLineRuns,
-                            alignment: alignmentForLines
                         };
                         if (alignmentForLines === AlignmentType.RIGHT) {
                             paragraphOptions.bidirectional = true;
