@@ -131,29 +131,54 @@
              if (typeof mammoth === 'undefined') {
                 console.error("DOCX reading library (mammoth) not loaded!");
             }
+            if (typeof pdfjsLib === 'undefined') {
+                console.error("PDF reading library (PDF.js) not loaded!");
+            }
         });
+
+        async function extractTextFromPdf(arrayBuffer) {
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            let textContent = "";
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const text = await page.getTextContent();
+                textContent += text.items.map(item => item.str).join(" ") + "\n";
+            }
+            return textContent.trim();
+        }
 
         userFileInput.addEventListener('change', async (event) => {
             const file = event.target.files[0];
             userFileInfo.classList.remove('error');
+            userPromptText = ""; // Reset user prompt text
+
             if (file) {
                 userFileInfo.textContent = `Loading: ${file.name}...`;
                 try {
-                    if (typeof mammoth === 'undefined') {
-                        throw new Error("Mammoth.js library not loaded. Cannot read DOCX.");
-                    }
                     const arrayBuffer = await file.arrayBuffer();
-                    const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
-                    userPromptText = result.value;
-                    userFileInfo.textContent = `Loaded: ${file.name} (${file.size} bytes). Preview: ${userPromptText.substring(0,100)}...`;
+                    if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+                        if (typeof pdfjsLib === 'undefined') {
+                            throw new Error("PDF.js library not loaded. Cannot read PDF.");
+                        }
+                        userPromptText = await extractTextFromPdf(arrayBuffer);
+                        userFileInfo.textContent = `Loaded PDF: ${file.name} (${file.size} bytes). Preview: ${userPromptText.substring(0,100)}...`;
+                    } else if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || file.name.toLowerCase().endsWith(".docx")) {
+                        if (typeof mammoth === 'undefined') {
+                            throw new Error("Mammoth.js library not loaded. Cannot read DOCX.");
+                        }
+                        const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
+                        userPromptText = result.value;
+                        userFileInfo.textContent = `Loaded DOCX: ${file.name} (${file.size} bytes). Preview: ${userPromptText.substring(0,100)}...`;
+                    } else {
+                        throw new Error(`Unsupported file type: ${file.type || 'unknown'}. Please upload a DOCX or PDF file.`);
+                    }
                 } catch (error) {
-                    console.error("Error processing DOCX file:", error);
+                    console.error("Error processing file:", error);
                     userPromptText = "";
-                    userFileInfo.textContent = `Error reading DOCX: ${error.message || 'Unknown error'}`;
+                    userFileInfo.textContent = `Error reading file (${file.name}): ${error.message || 'Unknown error'}`;
                     userFileInfo.classList.add('error');
                 }
             } else {
-                userPromptText = "";
                 userFileInfo.textContent = "";
             }
         });
