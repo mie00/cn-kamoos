@@ -42,6 +42,12 @@
     </style>
     <!-- Mammoth.js for DOCX to text -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <!-- PDF.js for PDF to text -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
+    <script>
+        // Required for PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js';
+    </script>
     <!-- docx library for creating DOCX files - Using jsDelivr -->
     <script src="https://cdn.jsdelivr.net/npm/docx@8.2.2/build/index.umd.min.js"></script>
 
@@ -56,8 +62,8 @@
         <label for="systemPromptTextarea">System Prompt:</label>
         <textarea id="systemPromptTextarea" placeholder="Enter system prompt here..."></textarea>
 
-        <label for="userFile">User Prompt File (user.docx):</label>
-        <input type="file" id="userFile" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+        <label for="userFile">User Prompt File (user.docx or user.pdf):</label>
+        <input type="file" id="userFile" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,application/pdf">
         <div id="userFileInfo" class="file-info"></div>
 
         <label for="modelName">Model Name:</label>
@@ -187,7 +193,7 @@
 
             if (!apiKey) { alert("Please enter your API Key."); return; }
             if (!systemPrompt) { alert("Please enter a system prompt."); return; }
-            if (!userPromptText) { alert("Please upload a user prompt DOCX file."); return; }
+            if (!userPromptText) { alert("Please upload a user prompt DOCX or PDF file."); return; }
 
             resetUIForNewGeneration();
             saveApiKey();
