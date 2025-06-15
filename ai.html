@@ -148,7 +148,7 @@
             }
         });
 
-        async function extractTextFromPdf(arrayBuffer, fileInfoElement) {
+        async function extractTextFromPdf(file, fileInfoElement) {
             if (typeof scribe === 'undefined') {
                 fileInfoElement.textContent = "Error: Scribe.js library not loaded. Cannot process PDF.";
                 fileInfoElement.classList.add('error');
@@ -161,7 +161,7 @@
 
             try {
                 const result = await scribe.extractText({
-                    files: [arrayBuffer], // Scribe.js expects an array of files/arraybuffers/URLs
+                    files: [file], // Scribe.js expects an array of files/arraybuffers/URLs
                     config: {
                         ocrLangs: ['ara', 'chi_sim', 'eng'], // Tesseract language codes for Scribe.js
                         onProgress: (data) => {
@@ -202,7 +202,7 @@
                             throw new Error("Scribe.js library not loaded. Cannot read PDF.");
                         }
                         // Pass userFileInfo to update during extraction
-                        userPromptText = await extractTextFromPdf(arrayBuffer, userFileInfo);
+                        userPromptText = await extractTextFromPdf(file, userFileInfo);
                         // userFileInfo is updated within extractTextFromPdf. Add final preview.
                         userFileInfo.textContent += ` Final preview: ${userPromptText.substring(0,100)}...`;
 
