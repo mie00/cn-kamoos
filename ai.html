@@ -170,11 +170,16 @@
         }
 
         function loadSystemPrompt() {
-            const savedPrompt = localStorage.getItem('geminiSystemPrompt');
+            const provider = apiProviderSelect.value;
+            const keyName = provider === 'openai' ? 'openaiSystemPrompt' : 'geminiSystemPrompt';
+            const savedPrompt = localStorage.getItem(keyName);
             if (savedPrompt) systemPromptTextarea.value = savedPrompt;
+            else systemPromptTextarea.value = ""; // Clear if no prompt for this provider
         }
         function saveSystemPrompt() {
-            localStorage.setItem('geminiSystemPrompt', systemPromptTextarea.value);
+            const provider = apiProviderSelect.value;
+            const keyName = provider === 'openai' ? 'openaiSystemPrompt' : 'geminiSystemPrompt';
+            localStorage.setItem(keyName, systemPromptTextarea.value);
         }
 
         apiProviderSelect.addEventListener('change', () => {
@@ -183,6 +188,7 @@
             updateApiKeyUI(apiProviderSelect.value);
             updateModelName(apiProviderSelect.value);
             loadApiKey(); // Load key for the new provider
+            loadSystemPrompt(); // Load system prompt for the new provider
         });
 
         apiKeyInput.addEventListener('change', saveApiKey);
