@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini API Frontend - Advanced</title>
+    <title>AI API Frontend - Advanced</title>
     <style>
         /* Make sure a path to Scribe.js assets like .wasm files can be configured if needed,
            though typically Scribe.js handles its own asset loading relative to its script path.
@@ -53,10 +53,16 @@
 </head>
 <body>
     <div class="container">
-        <h1>Gemini API Frontend - Advanced</h1>
+        <h1>AI API Frontend - Advanced</h1>
 
-        <label for="apiKey">Gemini API Key:</label>
-        <input type="password" id="apiKey" placeholder="Enter your API Key">
+        <label for="apiProvider">API Provider:</label>
+        <select id="apiProvider" style="width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+            <option value="gemini">Gemini</option>
+            <option value="openai">OpenAI</option>
+        </select>
+
+        <label for="apiKey" id="apiKeyLabel">Gemini API Key:</label>
+        <input type="password" id="apiKey" placeholder="Enter your Gemini API Key">
 
         <label for="systemPromptTextarea">System Prompt:</label>
         <textarea id="systemPromptTextarea" placeholder="Enter system prompt here..."></textarea>
@@ -66,7 +72,7 @@
         <div id="userFileInfo" class="file-info"></div>
 
         <label for="modelName">Model Name:</label>
-        <input type="text" id="modelName" value="gemini-2.5-pro-preview-05-06"> <!-- Default model -->
+        <input type="text" id="modelName" value="gemini-2.5-pro-preview-05-06"> <!-- Default model, will be updated by JS -->
 
         <button id="generateButton">Generate</button>
         <button id="stopButton" style="display:none;">Stop Generation</button>
@@ -93,7 +99,9 @@
         // Optionally, make it globally available if other non-module scripts might need it, though it's best to keep logic within modules.
         // window.scribe = scribe;
 
+        const apiProviderSelect = document.getElementById('apiProvider');
         const apiKeyInput = document.getElementById('apiKey');
+        const apiKeyLabel = document.getElementById('apiKeyLabel');
         const systemPromptTextarea = document.getElementById('systemPromptTextarea');
         const userFileInput = document.getElementById('userFile');
         const modelNameInput = document.getElementById('modelName');
@@ -109,13 +117,58 @@
         let abortController = null;
         let displayedPromptTokenCount = null; // Store prompt token count once received
 
+        const GEMINI_DEFAULT_MODEL = "gemini-2.5-pro-preview-05-06";
+        const OPENAI_DEFAULT_MODEL = "gpt-4.1-2025-04-14"; // As requested
+
+        function loadSelectedProvider() {
+            const savedProvider = localStorage.getItem('selectedApiProvider');
+            if (savedProvider) {
+                apiProviderSelect.value = savedProvider;
+            }
+            updateApiKeyUI(apiProviderSelect.value); // Ensure UI reflects loaded or default provider
+            updateModelName(apiProviderSelect.value);
+        }
+
+        function saveSelectedProvider() {
+            localStorage.setItem('selectedApiProvider', apiProviderSelect.value);
+        }
+
+        function updateApiKeyUI(provider) {
+            if (provider === 'openai') {
+                apiKeyLabel.textContent = 'OpenAI API Key:';
+                apiKeyInput.placeholder = 'Enter your OpenAI API Key (sk-...)';
+            } else { // gemini
+                apiKeyLabel.textContent = 'Gemini API Key:';
+                apiKeyInput.placeholder = 'Enter your Gemini API Key';
+            }
+        }
+
+        function updateModelName(provider) {
+            if (provider === 'openai') {
+                modelNameInput.value = OPENAI_DEFAULT_MODEL;
+            } else { // gemini
+                modelNameInput.value = GEMINI_DEFAULT_MODEL;
+            }
+        }
+
         function loadApiKey() {
-            const savedKey = localStorage.getItem('geminiApiKey');
+            const provider = apiProviderSelect.value;
+            const keyName = provider === 'openai' ? 'openaiApiKey' : 'geminiApiKey';
+            const savedKey = localStorage.getItem(keyName);
             if (savedKey) apiKeyInput.value = savedKey;
+            else apiKeyInput.value = ""; // Clear if no key for this provider
         }
+
         function saveApiKey() {
-            if (apiKeyInput.value) localStorage.setItem('geminiApiKey', apiKeyInput.value);
+            const provider = apiProviderSelect.value;
+            const keyName = provider === 'openai' ? 'openaiApiKey' : 'geminiApiKey';
+            if (apiKeyInput.value) {
+                localStorage.setItem(keyName, apiKeyInput.value);
+            } else {
+                localStorage.removeItem(keyName); // Remove if empty
+            }
         }
+
         function loadSystemPrompt() {
             const savedPrompt = localStorage.getItem('geminiSystemPrompt');
             if (savedPrompt) systemPromptTextarea.value = savedPrompt;
@@ -124,10 +177,20 @@
             localStorage.setItem('geminiSystemPrompt', systemPromptTextarea.value);
         }
 
+        apiProviderSelect.addEventListener('change', () => {
+            saveApiKey(); // Save key for the old provider before switching
+            saveSelectedProvider();
+            updateApiKeyUI(apiProviderSelect.value);
+            updateModelName(apiProviderSelect.value);
+            loadApiKey(); // Load key for the new provider
+        });
+
         apiKeyInput.addEventListener('change', saveApiKey);
         systemPromptTextarea.addEventListener('change', saveSystemPrompt);
+
         document.addEventListener('DOMContentLoaded', () => {
-            loadApiKey();
+            loadSelectedProvider(); // This will also call updateApiKeyUI and updateModelName
+            loadApiKey(); // Load key for the initially selected provider
             loadSystemPrompt();
             if (typeof docx === 'undefined') {
                 console.error("DOCX library (docx) not loaded!");
@@ -257,11 +320,16 @@
         }
 
         generateButton.addEventListener('click', async () => {
+            const selectedProvider = apiProviderSelect.value;
             const apiKey = apiKeyInput.value.trim();
             const systemPrompt = systemPromptTextarea.value.trim();
-            const modelName = modelNameInput.value.trim() || "gemini-2.5-pro-preview-05-06";
+            let modelName = modelNameInput.value.trim();
 
-            if (!apiKey) { alert("Please enter your API Key."); return; }
+            if (selectedProvider === 'gemini' && !modelName) modelName = GEMINI_DEFAULT_MODEL;
+            else if (selectedProvider === 'openai' && !modelName) modelName = OPENAI_DEFAULT_MODEL;
+
+
+            if (!apiKey) { alert(`Please enter your ${selectedProvider === 'openai' ? 'OpenAI' : 'Gemini'} API Key.`); return; }
             if (!systemPrompt) { alert("Please enter a system prompt."); return; }
             if (!userPromptText) { alert("Please upload a user prompt DOCX or PDF file."); return; }
 
@@ -272,22 +340,47 @@
             abortController = new AbortController();
             const signal = abortController.signal;
 
-            const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?key=${apiKey}&alt=sse`;
+            let API_URL = '';
+            let requestBody = {};
+            let fetchOptions = {};
 
-            const requestBody = {
-                "contents": [{ "role": "user", "parts": [{ "text": userPromptText }] }],
-                "systemInstruction": { "parts": [{ "text": systemPrompt }] },
-                "generationConfig": { "responseMimeType": "text/plain" }
-            };
-
-            let reader;
-            try {
-                const response = await fetch(API_URL, {
+            if (selectedProvider === 'gemini') {
+                API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?key=${apiKey}&alt=sse`;
+                requestBody = {
+                    "contents": [{ "role": "user", "parts": [{ "text": userPromptText }] }],
+                    "systemInstruction": { "parts": [{ "text": systemPrompt }] },
+                    "generationConfig": { "responseMimeType": "text/plain" }
+                };
+                fetchOptions = {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(requestBody),
                     signal: signal
-                });
+                };
+            } else { // openai
+                API_URL = `https://api.openai.com/v1/chat/completions`;
+                requestBody = {
+                    "model": modelName,
+                    "messages": [
+                        { "role": "system", "content": systemPrompt },
+                        { "role": "user", "content": userPromptText }
+                    ],
+                    "stream": true
+                };
+                fetchOptions = {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify(requestBody),
+                    signal: signal
+                };
+            }
+
+            let reader;
+            try {
+                const response = await fetch(API_URL, fetchOptions);
 
                 if (!response.ok) {
                     let errorData;
@@ -358,40 +451,58 @@
         });
 
         function processSseLine(line) {
+            const selectedProvider = apiProviderSelect.value;
+
             if (line.startsWith("data:")) {
                 const jsonString = line.substring(5).trim();
                 if (jsonString && jsonString.toLowerCase() !== "[done]") {
                     try {
                         const chunkData = JSON.parse(jsonString);
 
-                        if (chunkData.candidates?.[0]?.content?.parts?.[0]?.text) {
-                            outputContainer.textContent += chunkData.candidates[0].content.parts[0].text;
-                        }
-
-                        if (chunkData.usageMetadata) {
-                            const { promptTokenCount, candidatesTokenCount, totalTokenCount } = chunkData.usageMetadata;
-
-                            // Capture promptTokenCount once
-                            if (displayedPromptTokenCount === null && promptTokenCount !== undefined) {
-                                displayedPromptTokenCount = promptTokenCount;
+                        if (selectedProvider === 'gemini') {
+                            if (chunkData.candidates?.[0]?.content?.parts?.[0]?.text) {
+                                outputContainer.textContent += chunkData.candidates[0].content.parts[0].text;
                             }
 
-                            const promptDisplay = displayedPromptTokenCount !== null ? displayedPromptTokenCount : (promptTokenCount !== undefined ? promptTokenCount : "N/A");
-                            const candidatesDisplay = candidatesTokenCount !== undefined ? candidatesTokenCount : "N/A";
-                            const totalDisplay = totalTokenCount !== undefined ? totalTokenCount : "N/A";
+                            if (chunkData.usageMetadata) {
+                                const { promptTokenCount, candidatesTokenCount, totalTokenCount } = chunkData.usageMetadata;
+                                if (displayedPromptTokenCount === null && promptTokenCount !== undefined) {
+                                    displayedPromptTokenCount = promptTokenCount;
+                                }
+                                const promptDisplay = displayedPromptTokenCount !== null ? displayedPromptTokenCount : (promptTokenCount !== undefined ? promptTokenCount : "N/A");
+                                const candidatesDisplay = candidatesTokenCount !== undefined ? candidatesTokenCount : "N/A";
+                                const totalDisplay = totalTokenCount !== undefined ? totalTokenCount : "N/A";
 
-                            usageMetadataContainer.innerHTML =
-                                `Prompt Tokens: ${promptDisplay}<br>` +
-                                `Candidates Tokens: ${candidatesDisplay}<br>` +
-                                `Total Tokens: ${totalDisplay}`;
-                        }
+                                usageMetadataContainer.innerHTML =
+                                    `Prompt Tokens: ${promptDisplay}<br>` +
+                                    `Candidates Tokens: ${candidatesDisplay}<br>` +
+                                    `Total Tokens: ${totalDisplay}`;
+                            }
 
-                        if (chunkData.promptFeedback) { /* console.log("Prompt Feedback:", chunkData.promptFeedback); */ }
-                        else if (chunkData.error) {
-                            const errorMsg = chunkData.error.message || "Unknown error in stream chunk";
-                            outputContainer.textContent += `\nERROR from stream: ${errorMsg}\n`;
-                            outputContainer.classList.add('error');
-                            console.error("Stream error chunk:", chunkData.error);
+                            if (chunkData.promptFeedback) { /* console.log("Prompt Feedback:", chunkData.promptFeedback); */ }
+                            else if (chunkData.error) {
+                                const errorMsg = chunkData.error.message || "Unknown error in stream chunk";
+                                outputContainer.textContent += `\nERROR from stream: ${errorMsg}\n`;
+                                outputContainer.classList.add('error');
+                                console.error("Stream error chunk:", chunkData.error);
+                            }
+                        } else { // openai
+                            if (chunkData.choices?.[0]?.delta?.content) {
+                                outputContainer.textContent += chunkData.choices[0].delta.content;
+                            }
+                            // OpenAI streaming for chat completions typically does not include token usage per chunk.
+                            // We'll keep the N/A display unless a final chunk or different handling is implemented.
+                            // For now, token counts will remain N/A for OpenAI.
+                            if (usageMetadataContainer.innerHTML.includes("N/A<br>Candidates Tokens: N/A<br>Total Tokens: N/A")) {
+                                // Update to show N/A if it's the first OpenAI chunk and metadata is still default
+                                usageMetadataContainer.innerHTML = "Prompt Tokens: N/A (OpenAI Stream)<br>Candidates Tokens: N/A (OpenAI Stream)<br>Total Tokens: N/A (OpenAI Stream)";
+                            }
+                             if (chunkData.error) { // OpenAI might also send errors this way
+                                const errorMsg = chunkData.error.message || "Unknown error in OpenAI stream chunk";
+                                outputContainer.textContent += `\nERROR from stream: ${errorMsg}\n`;
+                                outputContainer.classList.add('error');
+                                console.error("OpenAI Stream error chunk:", chunkData.error);
+                            }
                         }
                     } catch (e) {
                         console.error("Failed to parse JSON from data line:", jsonString, e);
@@ -399,7 +510,7 @@
                         outputContainer.classList.add('error');
                     }
                 } else if (jsonString.toLowerCase() === "[done]") {
-                    console.log("SSE stream finished with [DONE] message.");
+                    console.log(`SSE stream finished with [DONE] message for ${selectedProvider}.`);
                 }
             } else if (line.startsWith("event:") || line.startsWith("id:") || line.startsWith("retry:") || line === "") {
                 // console.log("SSE control line:", line);
