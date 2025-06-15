@@ -136,73 +136,55 @@
              if (typeof mammoth === 'undefined') {
                 console.error("DOCX reading library (mammoth) not loaded!");
             }
-            if (typeof pdfjsLib === 'undefined') {
-                console.error("PDF reading library (PDF.js) not loaded!");
-            }
-            if (typeof Tesseract === 'undefined') {
-                console.error("OCR library (Tesseract.js) not loaded!");
+            // Check for Scribe.js (it's imported, so it should be available in the module scope)
+            if (typeof scribe === 'undefined') {
+                console.error("OCR and PDF library (Scribe.js) not loaded! Ensure it is installed and served correctly.");
+                // Display an error to the user in a more prominent way if critical
+                userFileInfo.textContent = "Error: Scribe.js library not loaded. PDF processing will fail.";
+                userFileInfo.classList.add('error');
+            } else {
+                console.log("Scribe.js loaded successfully.");
             }
         });
 
         async function extractTextFromPdf(arrayBuffer, fileInfoElement) {
-            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-            let textContent = "";
-            fileInfoElement.textContent += " (Extracting text...)";
-
-            for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i);
-                const text = await page.getTextContent();
-                textContent += text.items.map(item => item.str).join(" ") + "\n";
+            if (typeof scribe === 'undefined') {
+                fileInfoElement.textContent = "Error: Scribe.js library not loaded. Cannot process PDF.";
+                fileInfoElement.classList.add('error');
+                console.error("Scribe.js not loaded, cannot perform PDF extraction.");
+                return ""; // Return empty string or throw error
             }
-            textContent = textContent.trim();
 
-            // If text extraction yields very little, try OCR
-            // Heuristic: less than 50 characters OR very few unique characters for a multi-page doc
-            const uniqueChars = new Set(textContent).size;
-            if (textContent.length < 50 || (pdf.numPages > 1 && uniqueChars < 10 && textContent.length < 200)) {
-                fileInfoElement.textContent = `Initial text extraction minimal. Attempting OCR for ${pdf.numPages} page(s) (ara+chi_sim+eng)... This may take a while.`;
-                console.log("Minimal text from PDF.js, attempting OCR.");
-                let ocrText = "";
-                if (typeof Tesseract === 'undefined') {
-                    fileInfoElement.textContent += " OCR library (Tesseract.js) not loaded. Cannot perform OCR.";
-                    console.error("Tesseract.js not loaded, cannot perform OCR.");
-                    return textContent; // Return whatever was extracted
-                }
+            fileInfoElement.textContent = "Processing PDF with Scribe.js... This may take a while for OCR.";
+            console.log("Starting PDF processing with Scribe.js.");
 
-                const worker = await Tesseract.createWorker('ara+chi_sim+eng', 1, {
-                    logger: m => {
-                        console.log(m);
-                        if (m.status === 'recognizing text') {
-                            const progress = (m.progress * 100).toFixed(0);
-                            fileInfoElement.textContent = `OCR in progress: ${m.status} on page (overall ${progress}%)...`;
-                        } else {
-                             fileInfoElement.textContent = `OCR status: ${m.status}...`;
+            try {
+                const result = await scribe.extractText({
+                    files: [arrayBuffer], // Scribe.js expects an array of files/arraybuffers/URLs
+                    config: {
+                        ocrLangs: ['ara', 'chi_sim', 'eng'], // Tesseract language codes for Scribe.js
+                        onProgress: (data) => {
+                            console.log("Scribe.js progress:", data);
+                            let progressMessage = `Scribe.js: ${data.status}`;
+                            if (data.progress !== undefined) {
+                                progressMessage += ` (${(data.progress * 100).toFixed(0)}%)`;
+                            }
+                            fileInfoElement.textContent = progressMessage + "...";
                         }
                     }
                 });
 
-                for (let i = 1; i <= pdf.numPages; i++) {
-                    fileInfoElement.textContent = `OCR: Processing page ${i} of ${pdf.numPages}...`;
-                    const page = await pdf.getPage(i);
-                    const viewport = page.getViewport({ scale: 2.0 }); // Higher scale can improve OCR
-                    const canvas = document.createElement('canvas');
-                    const context = canvas.getContext('2d');
-                    canvas.height = viewport.height;
-                    canvas.width = viewport.width;
-
-                    await page.render({ canvasContext: context, viewport: viewport }).promise;
-                    const { data: { text } } = await worker.recognize(canvas);
-                    ocrText += text + "\n";
-                    canvas.remove(); // Clean up canvas
-                }
-                await worker.terminate();
-                textContent = ocrText.trim();
-                fileInfoElement.textContent = `OCR complete. Extracted text length: ${textContent.length}.`;
-                console.log("OCR complete.");
-            } else {
-                 fileInfoElement.textContent += " Text extracted successfully.";
+                const extractedText = result.text ? result.text.trim() : "";
+                const numPages = result.pages && Array.isArray(result.pages) ? result.pages.length : 'N/A';
+                fileInfoElement.textContent = `PDF processing complete with Scribe.js. Pages: ${numPages}. Extracted text length: ${extractedText.length}.`;
+                console.log("Scribe.js PDF processing complete.");
+                return extractedText;
+            } catch (error) {
+                console.error("Error during Scribe.js PDF processing:", error);
+                fileInfoElement.textContent = `Error processing PDF with Scribe.js: ${error.message || 'Unknown error'}`;
+                fileInfoElement.classList.add('error');
+                return ""; // Return empty string or re-throw
             }
-            return textContent;
         }
 
         userFileInput.addEventListener('change', async (event) => {
@@ -215,16 +197,12 @@
                 try {
                     const arrayBuffer = await file.arrayBuffer();
                     if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-                        if (typeof pdfjsLib === 'undefined') {
-                            throw new Error("PDF.js library not loaded. Cannot read PDF.");
+                        if (typeof scribe === 'undefined') { // Double check before calling
+                            throw new Error("Scribe.js library not loaded. Cannot read PDF.");
                         }
                         // Pass userFileInfo to update during extraction
                         userPromptText = await extractTextFromPdf(arrayBuffer, userFileInfo);
-                        // The userFileInfo is updated within extractTextFromPdf, so we might just append a summary here or let the function handle it.
-                        // For now, let's assume extractTextFromPdf sets the final status.
-                        // If OCR was not run, the message might be "Text extracted successfully."
-                        // If OCR was run, it might be "OCR complete."
-                        // We'll add a final summary line.
+                        // userFileInfo is updated within extractTextFromPdf. Add final preview.
                         userFileInfo.textContent += ` Final preview: ${userPromptText.substring(0,100)}...`;
 
                     } else if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || file.name.toLowerCase().endsWith(".docx")) {
