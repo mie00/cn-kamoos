@@ -170,16 +170,12 @@
         }
 
         function loadSystemPrompt() {
-            const provider = apiProviderSelect.value;
-            const keyName = provider === 'openai' ? 'openaiSystemPrompt' : 'geminiSystemPrompt';
-            const savedPrompt = localStorage.getItem(keyName);
+            const savedPrompt = localStorage.getItem('sharedSystemPrompt');
             if (savedPrompt) systemPromptTextarea.value = savedPrompt;
-            else systemPromptTextarea.value = ""; // Clear if no prompt for this provider
+            // If no saved prompt, keep the current textarea content or default placeholder
         }
         function saveSystemPrompt() {
-            const provider = apiProviderSelect.value;
-            const keyName = provider === 'openai' ? 'openaiSystemPrompt' : 'geminiSystemPrompt';
-            localStorage.setItem(keyName, systemPromptTextarea.value);
+            localStorage.setItem('sharedSystemPrompt', systemPromptTextarea.value);
         }
 
         apiProviderSelect.addEventListener('change', () => {
@@ -188,7 +184,7 @@
             updateApiKeyUI(apiProviderSelect.value);
             updateModelName(apiProviderSelect.value);
             loadApiKey(); // Load key for the new provider
-            loadSystemPrompt(); // Load system prompt for the new provider
+            // System prompt is shared, so no need to reload it here.
         });
 
         apiKeyInput.addEventListener('change', saveApiKey);
