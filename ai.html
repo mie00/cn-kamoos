@@ -86,9 +86,12 @@
     </div>
 
     <script type="module">
-        // Import Scribe.js - Ensure this path is correct for your server setup
-        // and that you have run `npm i scribe.js-ocr` and are serving node_modules.
-        import scribe from '/node_modules/scribe.js-ocr/scribe.js';
+        // Import Scribe.js from a CDN.
+        // WARNING: The Scribe.js documentation explicitly states that importing from a CDN may not work
+        // due to its need to load worker scripts and WASM files from the same origin.
+        // This change is made as per your request, but it might lead to runtime errors if Scribe.js
+        // cannot load its auxiliary files from the CDN or due to cross-origin policy.
+        import scribe from 'https://cdn.jsdelivr.net/npm/scribe.js-ocr@latest/scribe.js';
         // Optionally, make it globally available if other non-module scripts might need it, though it's best to keep logic within modules.
         // window.scribe = scribe;
 
