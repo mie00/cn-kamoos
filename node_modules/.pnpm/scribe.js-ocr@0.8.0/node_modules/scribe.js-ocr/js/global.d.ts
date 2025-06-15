@@ -1,0 +1,182 @@
+declare global {
+
+    type Style = {
+        font: ?string;
+        size: ?number;
+        bold: boolean;
+        italic: boolean;
+        underline: boolean;
+        smallCaps: boolean;
+        sup: boolean;
+        dropcap: boolean;
+    };
+    
+    type FontState = {
+        enableOpt: boolean;
+        forceOpt: boolean;
+        enableCleanToNimbusMono: boolean;
+        defaultFontName: string;
+        serifDefaultName: string;
+        sansDefaultName: string;
+        glyphSet: null | 'latin' | 'all';
+        charMetrics: { [key: string]: CharMetricsFamily };
+    }    
+
+    type ScribeSaveData = {
+        ocr: OcrPage[];
+        fontState: FontState;
+        layoutRegions: LayoutPage[];
+        layoutDataTables: LayoutDataTablePage[];
+    }
+
+    type StyleLookup = ('normal'|'bold'|'italic'|'boldItalic');
+      
+    // OCR objects
+    type OcrPage = import("./objects/ocrObjects.js").OcrPage;
+    type OcrLine = import("./objects/ocrObjects.js").OcrLine;
+    type OcrWord = import("./objects/ocrObjects.js").OcrWord;
+    type OcrChar = import("./objects/ocrObjects.js").OcrChar;
+
+    // Font objects
+    type CharMetricsFont = import("./objects/charMetricsObjects.js").CharMetricsFont;
+    type CharMetricsRawFamily = import("./objects/charMetricsObjects.js").CharMetricsRawFamily;
+    type CharMetricsFamily = import("./objects/charMetricsObjects.js").CharMetricsFamily;
+    type CharMetricsRawFont = import("./objects/charMetricsObjects.js").CharMetricsRawFont;
+    type FontContainerFont = import("./containers/fontContainer.js").FontContainerFont;
+
+    type FontContainerFamilyBuiltIn = {
+        normal: FontContainerFont;
+        italic: FontContainerFont;
+        bold: FontContainerFont;
+        boldItalic: FontContainerFont;
+    };
+
+    type FontContainerFamilyUpload = {
+        normal: FontContainerFont | null;
+        italic: FontContainerFont | null;
+        bold: FontContainerFont | null;
+        boldItalic: FontContainerFont | null;
+    };
+
+    type FontContainerFamily = FontContainerFamilyBuiltIn | FontContainerFamilyUpload;
+
+    type FontContainer = {
+        Carlito: FontContainerFamilyBuiltIn;
+        Century: FontContainerFamilyBuiltIn;
+        Garamond: FontContainerFamilyBuiltIn;
+        Palatino: FontContainerFamilyBuiltIn;
+        NimbusRoman: FontContainerFamilyBuiltIn;
+        NimbusSans: FontContainerFamilyBuiltIn;
+        NimbusMono: FontContainerFamilyBuiltIn;
+        [key: string]: FontContainerFamily;
+    };
+
+    type fontSrcBuiltIn = {
+        normal: ArrayBuffer;
+        italic: ArrayBuffer;
+        bold: ArrayBuffer;
+        boldItalic: ArrayBuffer;
+    };
+
+    type fontSrcUpload = {
+        normal: ArrayBuffer | null;
+        italic: ArrayBuffer | null;
+        bold: ArrayBuffer | null;
+        boldItalic: ArrayBuffer | null;
+    };
+
+    type opentypeFont = import("../lib/opentype.module.js").Font;
+    type opentypeGlyph = import("../lib/opentype.module.js").Glyph;
+    type GeneralScheduler = import("./generalWorkerMain.js").GeneralScheduler;
+
+    // Image objects
+    type ImageWrapper = import("./objects/imageObjects.js").ImageWrapper;
+
+    type dims = {
+        height: number;
+        width: number;
+    };
+
+    type bbox = {
+        left: number;
+        right: number;
+        top: number;
+        bottom: number;
+    };
+
+    type PageMetrics = import("./objects/pageMetricsObjects.js").PageMetrics;
+
+    type EvalMetrics = {
+        total: number;
+        correct: number;
+        incorrect: number;
+        missed: number;
+        extra: number;
+        correctLowConf: number;
+        incorrectHighConf: number;
+    };
+    /**
+     * Represents a comparison debug object with image data and error metrics.
+     * Raw errors are calculated purely based on visual overlap. Words where most pixels overlap with the underlying image will have low raw error.
+     * Adjusted errors are calculated by applying ad-hoc adjustments to raw errors. The intent of these adjustments is to penalize patterns of letters
+     * that are visually similar to other letters but unlikely to occur in correct recognition results.
+     */
+    type CompDebugBrowser = {
+        context: 'browser';
+        imageRaw: Blob; // The raw image blob.
+        imageA: Blob; // The first image blob for comparison.
+        imageB: Blob; // The second image blob for comparison.
+        dims: dims; // Dimensions object specifying size or other dimensional data.
+        errorRawA: number; // Raw error of "A" words, calculated purely based on visual overlap.
+        errorRawB: number; // Raw error of "B" words, similar to errorRawA.
+        errorAdjA: number | null; // Adjusted error of "A" words. Null until calculated.
+        errorAdjB: number | null; // Adjusted error of "B" words. Null until calculated.
+    };
+
+    /**
+     * Represents a comparison debug object with image data and error metrics.
+     * Raw errors are calculated purely based on visual overlap. Words where most pixels overlap with the underlying image will have low raw error.
+     * Adjusted errors are calculated by applying ad-hoc adjustments to raw errors. The intent of these adjustments is to penalize patterns of letters
+     * that are visually similar to other letters but unlikely to occur in correct recognition results.
+     */
+    type CompDebugNode = {
+        context: 'node';
+        imageRaw: import('canvas').Image; // The raw image.
+        imageA: import('canvas').Image; // The first image for comparison.
+        imageB: import('canvas').Image; // The second image for comparison.
+        dims: dims; // Dimensions object specifying size or other dimensional data.
+        errorRawA: number; // Raw error of "A" words, calculated purely based on visual overlap.
+        errorRawB: number; // Raw error of "B" words, similar to errorRawA.
+        errorAdjA: number | null; // Adjusted error of "A" words. Null until calculated.
+        errorAdjB: number | null; // Adjusted error of "B" words. Null until calculated.
+    };
+
+    type ProgressMessage = ProgressMessageConvert | ProgressMessageGeneral;
+
+    type ProgressMessageGeneral = {
+        type: 'export' | 'importImage' | 'importPDF' | 'render';
+        n: number;
+        info: {};
+    }
+
+    type ProgressMessageConvert = {
+        type: 'convert';
+        n: number;
+        info: {
+            engineName: string;
+        };
+    }
+
+    type FileNode = import("./import/nodeAdapter.js").FileNode;
+
+    // Layout objects
+    type LayoutPage = import("./objects/layoutObjects.js").LayoutPage;
+    type LayoutDataTablePage = import("./objects/layoutObjects.js").LayoutDataTablePage;
+    type LayoutDataTable = import("./objects/layoutObjects.js").LayoutDataTable;
+    type LayoutDataColumn = import("./objects/layoutObjects.js").LayoutDataColumn;
+    type LayoutRegion = import("./objects/layoutObjects.js").LayoutRegion;
+
+}
+
+export { };
+
