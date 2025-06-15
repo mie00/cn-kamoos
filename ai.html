@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gemini API Frontend - Advanced</title>
     <style>
+        /* Make sure a path to Scribe.js assets like .wasm files can be configured if needed,
+           though typically Scribe.js handles its own asset loading relative to its script path.
+           No direct style changes needed for Scribe.js integration itself. */
         body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
         .container { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
         label { display: block; margin-top: 15px; margin-bottom: 5px; font-weight: bold; }
@@ -42,14 +45,8 @@
     </style>
     <!-- Mammoth.js for DOCX to text -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
-    <!-- PDF.js for PDF to text -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
-    <script>
-        // Required for PDF.js worker
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js';
-    </script>
-    <!-- Tesseract.js for OCR -->
-    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+    <!-- Scribe.js will be imported as an ES module in the main script block. -->
+    <!-- PDF.js and Tesseract.js are no longer needed as Scribe.js handles their functionalities for PDFs. -->
     <!-- docx library for creating DOCX files - Using jsDelivr -->
     <script src="https://cdn.jsdelivr.net/npm/docx@8.2.2/build/index.umd.min.js"></script>
 
@@ -88,7 +85,13 @@
         <button id="saveButton" style="margin-top: 15px;" disabled>Save Output as DOCX</button>
     </div>
 
-    <script>
+    <script type="module">
+        // Import Scribe.js - Ensure this path is correct for your server setup
+        // and that you have run `npm i scribe.js-ocr` and are serving node_modules.
+        import scribe from '/node_modules/scribe.js-ocr/scribe.js';
+        // Optionally, make it globally available if other non-module scripts might need it, though it's best to keep logic within modules.
+        // window.scribe = scribe;
+
         const apiKeyInput = document.getElementById('apiKey');
         const systemPromptTextarea = document.getElementById('systemPromptTextarea');
         const userFileInput = document.getElementById('userFile');
