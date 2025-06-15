@@ -116,6 +116,7 @@
         let userPromptText = "";
         let abortController = null;
         let displayedPromptTokenCount = null; // Store prompt token count once received
+        let previousProvider; // To store the provider before a change
 
         const GEMINI_DEFAULT_MODEL = "gemini-2.5-pro-preview-05-06";
         const OPENAI_DEFAULT_MODEL = "gpt-4.1-2025-04-14"; // As requested
@@ -179,11 +180,24 @@
         }
 
         apiProviderSelect.addEventListener('change', () => {
-            saveApiKey(); // Save key for the old provider before switching
-            saveSelectedProvider();
-            updateApiKeyUI(apiProviderSelect.value);
-            updateModelName(apiProviderSelect.value);
-            loadApiKey(); // Load key for the new provider
+            const newProvider = apiProviderSelect.value;
+            const keyOfOldProvider = apiKeyInput.value; // This is the API key that was in the input for the 'previousProvider'
+
+            // Save the keyOfOldProvider, associating it with the 'previousProvider'
+            const oldProviderStorageKey = previousProvider === 'openai' ? 'openaiApiKey' : 'geminiApiKey';
+            if (keyOfOldProvider) {
+                localStorage.setItem(oldProviderStorageKey, keyOfOldProvider);
+            } else {
+                localStorage.removeItem(oldProviderStorageKey);
+            }
+
+            // Now, update everything for the newProvider
+            saveSelectedProvider(); // Saves the 'newProvider' as the currently selected one
+            updateApiKeyUI(newProvider);
+            updateModelName(newProvider);
+            loadApiKey(); // Loads the API key for 'newProvider' into the input field
+
+            previousProvider = newProvider; // Update previousProvider for the next change event
             // System prompt is shared, so no need to reload it here.
         });
 
@@ -192,6 +206,7 @@
 
         document.addEventListener('DOMContentLoaded', () => {
             loadSelectedProvider(); // This will also call updateApiKeyUI and updateModelName
+            previousProvider = apiProviderSelect.value; // Initialize previousProvider after selected provider is loaded
             loadApiKey(); // Load key for the initially selected provider
             loadSystemPrompt();
             if (typeof docx === 'undefined') {
